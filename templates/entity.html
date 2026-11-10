@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import type_badge %}
+{% from "_macros.html" import type_badge, section_nav, section, side_section %}
 {% block title %}{{ e.canonical_name }} · Civic Wiki{% endblock %}
 {% block content %}
 <div class="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3">
@@ -29,6 +29,8 @@
   {% endif %}
 </div>
 
+{{ section_nav() }}
+
 <div class="grid gap-8 lg:grid-cols-3">
   <div class="min-w-0 lg:col-span-2">
     <section class="wiki-prose font-serif text-[17px] text-slate-800">
@@ -47,15 +49,19 @@
       {% endif %}
     </section>
 
-    <section class="mt-8" id="ledger" data-entity-id="{{ e.id }}" data-sort="{{ sort }}" data-topic="{{ topic }}" data-admin="{{ 1 if is_admin else 0 }}">
+    {% call section('ledger-section', 'Career & stance ledger', note=(e.n_events ~ ' event' ~ ('' if e.n_events == 1 else 's'))) %}
+    <div id="ledger" data-entity-id="{{ e.id }}" data-sort="{{ sort }}" data-topic="{{ topic }}" data-admin="{{ 1 if is_admin else 0 }}">
       <div class="mb-3 flex flex-wrap items-center gap-3">
-        <h2 class="font-serif text-2xl mr-auto">Career &amp; stance ledger</h2>
         <div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-sm" id="ledger-sort">
           <button data-sort="salience" class="rounded-md px-3 py-1">Most defining</button>
           <button data-sort="recent" class="rounded-md px-3 py-1">Chronological</button>
         </div>
       </div>
-      <div class="mb-3 flex flex-wrap gap-1" id="ledger-topics">
+      {% if topics %}
+      <button type="button" id="ledger-topics-toggle" class="mb-2 text-xs text-blue-600 hover:underline"
+              aria-expanded="{{ 'true' if topic else 'false' }}">{{ '▾' if topic else '▸' }} Filter by topic ({{ topics|length }})</button>
+      {% endif %}
+      <div class="mb-3 flex-wrap gap-1 {{ 'flex' if topic else 'hidden' }}" id="ledger-topics">
         <button data-topic="" class="rounded-full px-2 py-0.5 text-xs ring-1 ring-inset">all topics</button>
         {% for t in topics %}
           <button data-topic="{{ t.tag }}" class="rounded-full px-2 py-0.5 text-xs ring-1 ring-inset">#{{ t.tag }} <span class="opacity-60">{{ t.n }}</span></button>
@@ -67,17 +73,18 @@
       </label>
       <div id="ledger-rows" class="space-y-3"><p class="text-sm text-slate-400">Loading…</p></div>
       <div id="ledger-disputed"></div>
-    </section>
+    </div>
+    {% endcall %}
 
     {% if vote_summary %}
     {% from "_votes.html" import vote_badge, measure_type, outcome %}
-    <section class="mt-10" id="voting-record">
-      <h2 class="mb-1 font-serif text-2xl">Voting record</h2>
-      <p class="mb-3 text-xs text-slate-500">Roll-call votes from official minutes only. “Against majority” = voted aye/no opposite to most members on that motion.</p>
+    {% call section('voting-record', 'Voting record', note=(votes|length ~ ' vote' ~ ('' if votes|length == 1 else 's') ~ (' on ' ~ vote_topic if vote_topic else ''))) %}
+      <p class="mb-3 text-xs text-slate-500">Roll-call votes from official minutes only; procedural votes (approving minutes or agendas, adjourning) are left out. “Against majority” = voted aye/no opposite to most members on that motion.</p>
       <table class="mb-4 w-full text-sm">
         <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500">
           <th class="py-1">Topic</th><th class="text-right">Votes</th><th class="text-right">Aye</th><th class="text-right">No</th>
           <th class="text-right">Abstain</th><th class="text-right">Absent / recused</th><th class="text-right">Against majority</th></tr></thead>
+        <tbody>
         {% for s in vote_summary %}
         <tr class="border-t border-slate-100 {{ 'bg-blue-50' if s.topic == vote_topic }}">
           <td class="py-1"><a class="text-blue-600 hover:underline" href="?vote_topic={{ s.topic|urlencode }}#voting-record">{{ s.topic }}</a></td>
@@ -85,9 +92,11 @@
           <td class="text-right">{{ s.abstentions }}</td><td class="text-right">{{ s.not_voting }}</td><td class="text-right">{{ s.dissents }}</td>
         </tr>
         {% endfor %}
+        </tbody>
       </table>
       {% if vote_topic %}<p class="mb-2 text-sm">Showing <strong>{{ vote_topic }}</strong> · <a class="text-blue-600 hover:underline" href="?#voting-record">all topics</a></p>{% endif %}
       <table class="w-full text-sm">
+        <tbody>
         {% for v in votes %}
         <tr class="border-t border-slate-100 align-top">
           <td class="whitespace-nowrap py-1.5 pr-3 text-slate-500">{{ v.vote_date|date }}</td>
@@ -98,44 +107,52 @@
           <td class="whitespace-nowrap py-1.5 text-right">{{ vote_badge(v.vote) }}{% if v.dissent %}<div class="text-[11px] text-rose-700">against majority</div>{% endif %}</td>
         </tr>
         {% endfor %}
+        </tbody>
       </table>
-    </section>
+    {% endcall %}
     {% endif %}
   </div>
 
-  <aside class="space-y-5">
-    <div class="rounded-xl border border-slate-200 bg-white">
-      <div class="border-b border-slate-200 bg-slate-100 px-4 py-2 text-center font-serif text-lg">{{ e.canonical_name }}</div>
-      <div class="p-4 text-sm">
-        <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Positions &amp; affiliations</h3>
-        {% if affiliations %}
-        <ul class="space-y-2">
-          {% for a in affiliations %}
-          <li>
-            <div class="font-medium">{{ a.role_title }}</div>
-            {% if a.organization_id %}<a class="text-blue-600 hover:underline" href="{{ url_for('wiki.entity', entity_id=a.organization_id) }}">{{ a.organization }}</a>{% endif %}
-            <div class="text-xs text-slate-500">{{ a.first_seen_date|date }} – {{ a.last_seen_date|date }}</div>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}<p class="text-slate-400 text-xs">None recorded.</p>{% endif %}
+  <aside class="space-y-3">
+    {% call side_section('positions', 'Positions & affiliations', open=True) %}
+      {% if affiliations %}
+      <ul class="space-y-3">
+        {% for o in affiliations %}
+        <li data-item>
+          {% if o.organization_id %}<a class="font-medium text-blue-600 hover:underline" href="{{ url_for('wiki.entity', entity_id=o.organization_id) }}">{{ o.organization }}</a>
+          {% else %}<span class="font-medium text-slate-500">No organization recorded</span>{% endif %}
+          <div class="mt-1 space-y-0.5">
+            {% for r in o.roles %}
+            <div class="flex flex-wrap items-baseline justify-between gap-x-2"
+                 {% if r.variants %}title="Also recorded as: {{ r.variants|join('; ') }}"{% endif %}>
+              <span>{{ r.label }}{% if r.variants %}<span class="ml-0.5 cursor-help text-slate-400">*</span>{% endif %}</span>
+              <span class="text-xs text-slate-500">{{ r.first_seen|date }}{% if r.last_seen and r.last_seen != r.first_seen %} – {{ r.last_seen|date }}{% endif %}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% if affiliations|selectattr('roles')|map(attribute='roles')|sum(start=[])|selectattr('variants')|list %}
+      <p class="mt-2 text-[11px] text-slate-400">* the same role recorded under other wordings (hover to see them)</p>
+      {% endif %}
+      {% else %}<p class="text-slate-400 text-xs">None recorded.</p>{% endif %}
+    {% endcall %}
 
-        {% if members %}
-        <h3 class="mt-4 mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">People in this body</h3>
-        <ul class="space-y-1">
-          {% for m in members %}
-          <li><a class="text-blue-600 hover:underline" href="{{ url_for('wiki.entity', entity_id=m.id) }}">{{ m.canonical_name }}</a>
-              <span class="text-xs text-slate-500">· {{ m.role_title }}</span></li>
-          {% endfor %}
-        </ul>
-        {% endif %}
-      </div>
-    </div>
+    {% if members %}
+    {% call side_section('members', 'People in this body', open=True) %}
+      <ul class="space-y-1">
+        {% for m in members %}
+        <li><a class="text-blue-600 hover:underline" href="{{ url_for('wiki.entity', entity_id=m.id) }}">{{ m.canonical_name }}</a>
+            <span class="text-xs text-slate-500">· {{ m.role_title }}</span></li>
+        {% endfor %}
+      </ul>
+    {% endcall %}
+    {% endif %}
 
-    <div class="rounded-xl border border-slate-200 bg-white p-4 text-sm">
-      <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-700">Top coalition allies</h3>
+    {% call side_section('allies', 'Top coalition allies', 'text-emerald-700') %}
       {% for c in allies %}
-        <div class="mb-2">
+        <div data-item class="mb-2">
           <div class="flex justify-between gap-2">
             <a class="text-blue-600 hover:underline" href="{{ url_for('wiki.entity', entity_id=c.entity_b_id) }}">{{ c.entity_b_name }}</a>
             <span class="font-mono text-emerald-700">{{ '%+d'|format((c.alignment_index * 100)|round|int) }}%</span>
@@ -143,10 +160,11 @@
           <div class="text-xs text-slate-500">{{ c.shared_events_count }} shared event{{ '' if c.shared_events_count == 1 else 's' }}{% if c.shared_topic_tags %} · {{ c.shared_topic_tags[:4]|join(', ') }}{% endif %}</div>
         </div>
       {% else %}<p class="text-slate-400 text-xs">No aligned partners yet.</p>{% endfor %}
+    {% endcall %}
 
-      <h3 class="mt-4 mb-2 text-xs font-semibold uppercase tracking-wide text-rose-700">Frequent opponents / counterparts</h3>
+    {% call side_section('opponents', 'Frequent opponents / counterparts', 'text-rose-700') %}
       {% for c in opponents %}
-        <div class="mb-2">
+        <div data-item class="mb-2">
           <div class="flex justify-between gap-2">
             <a class="text-blue-600 hover:underline" href="{{ url_for('wiki.entity', entity_id=c.entity_b_id) }}">{{ c.entity_b_name }}</a>
             <span class="font-mono text-rose-700">{{ '%+d'|format((c.alignment_index * 100)|round|int) }}%</span>
@@ -154,7 +172,7 @@
           <div class="text-xs text-slate-500">{{ c.opposing_stance_count }} opposing event{{ '' if c.opposing_stance_count == 1 else 's' }}</div>
         </div>
       {% else %}<p class="text-slate-400 text-xs">No opposing counterparts yet.</p>{% endfor %}
-    </div>
+    {% endcall %}
   </aside>
 </div>
 {% endblock %}

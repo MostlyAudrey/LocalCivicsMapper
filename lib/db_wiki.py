@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from lib import affiliations
 from lib.db_conn import Db_conn
 from lib.embed import to_vector_literal
 
@@ -205,17 +206,24 @@ def entity_affiliations(entity_id: int) -> List[Row]:
     )
 
 
-def entity_members(entity_id: int) -> List[Row]:
-    """People/orgs affiliated WITH this organization (reverse affiliations)."""
-    return db.fetch_all(
+def entity_affiliations_condensed(entity_id: int) -> List[Row]:
+    """Affiliations grouped by organization, synonymous roles merged (lib/affiliations.py)."""
+    return affiliations.condense(entity_affiliations(entity_id))
+
+
+def entity_members(entity_id: int, limit: int = 25) -> List[Row]:
+    """People/orgs affiliated WITH this organization (reverse affiliations), one line per person."""
+    rows = db.fetch_all(
         """
-        SELECT e.id, e.canonical_name, a.role_title, a.last_seen_date
+        SELECT e.id, e.canonical_name, a.role_title, a.last_seen_date, o.canonical_name AS organization
         FROM TB_Entity_Affiliation a JOIN TB_Entity e ON e.id = a.entity_id
+        JOIN TB_Entity o ON o.id = a.organization_id
         WHERE a.organization_id = %s
-        ORDER BY a.last_seen_date DESC LIMIT 25
+        ORDER BY a.last_seen_date DESC LIMIT 500
         """,
         (entity_id,),
     )
+    return affiliations.condense_members(rows)[:limit]
 
 
 def entity_topics(entity_id: int) -> List[Row]:

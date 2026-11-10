@@ -1,7 +1,7 @@
 // Career & stance ledger entry (entity page). Rendered from /api/entity/<id>/ledger rows.
 const ledger_template = `
 {{#each rows}}
-<article class="rounded-xl border border-slate-200 bg-white p-4">
+<article data-item class="rounded-xl border border-slate-200 bg-white p-4">
   <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
     <span>{{fmtDate event_date}}</span>
     <span class="uppercase tracking-wide">{{underscoreToSpace event_type}}</span>

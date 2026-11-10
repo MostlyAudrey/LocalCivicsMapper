@@ -17,6 +17,24 @@ Row = Dict[str, Any]
 ISSUE_MIN_SIMILARITY = 0.55     # cosine, measure title vs event (EVENT_DEDUP embeddings)
 ISSUE_YEARS = 3
 
+# Procedural votes (approving minutes or the agenda, setting the meeting schedule, adjourning, recessing,
+# tabling the remaining items) say nothing about a member's
+# positions: hidden from voting records, measure pages and the measures list. A motion that also adopts a
+# resolution/ordinance/contract/budget is NOT procedural (Postgres ARE regexes, case-insensitive).
+PROCEDURAL = {
+    "proc_words": (r"\m(minutes|agenda)\M"
+                   r"|\mmeetings?\s+(schedule|time|times|dates?|calendar|location|day)\M"
+                   r"|\mmeetings?\s+will\s+(be|begin|start|occur)\M"),
+    "proc_substantive": r"\m(resolution|ordinance|contract|agreement|budget|appropriat\w*)\M",
+    "proc_adjourn": r"^\W*(motion\s+to\s+)?(adjourn|recess|table\s+(all|the)\s+remaining)",
+}
+
+
+def _procedural(col: str) -> str:
+    """SQL condition: column `col` (a trusted column name, never user input) reads as a procedural motion."""
+    return (f"(({col} ~* %(proc_words)s AND {col} !~* %(proc_substantive)s) "
+            f"OR {col} ~* %(proc_adjourn)s)")
+
 
 def tables_ready() -> bool:
     row = db.fetch_one("SELECT to_regclass('tb_vote_motion') IS NOT NULL AS ok")
@@ -32,14 +50,23 @@ def get_measure(measure_id: int) -> Optional[Row]:
     )
 
 
+def count_procedural_motions(measure_id: int) -> int:
+    row = db.fetch_one(
+        f"SELECT COUNT(*) AS n FROM TB_Vote_Motion mo WHERE mo.measure_id = %(id)s AND {_procedural('mo.motion_text')}",
+        {"id": measure_id, **PROCEDURAL},
+    )
+    return int(row["n"]) if row else 0
+
+
 def measure_motions(measure_id: int) -> List[Row]:
-    """Each motion with its roll call (from the minutes) and the minutes document."""
+    """Each substantive motion with its roll call (from the minutes) and the minutes document."""
     motions = db.fetch_all(
-        """SELECT mo.*, a.url AS minutes_url, a.title AS minutes_title, b.canonical_name AS body_name
+        f"""SELECT mo.*, a.url AS minutes_url, a.title AS minutes_title, b.canonical_name AS body_name
            FROM TB_Vote_Motion mo JOIN TB_Article a ON a.id = mo.source_article_id
            LEFT JOIN TB_Entity b ON b.id = mo.body_entity_id
-           WHERE mo.measure_id = %s ORDER BY mo.vote_date NULLS LAST, mo.id""",
-        (measure_id,),
+           WHERE mo.measure_id = %(id)s AND NOT {_procedural('mo.motion_text')}
+           ORDER BY mo.vote_date NULLS LAST, mo.id""",
+        {"id": measure_id, **PROCEDURAL},
     )
     if not motions:
         return []
@@ -128,7 +155,7 @@ def measure_people(measure_id: int, event_ids: List[int], limit: int = 40) -> Li
 
 def list_measures(q: str = "", jurisdiction: str = "", mtype: str = "", limit: int = 200) -> List[Row]:
     return db.fetch_all(
-        """SELECT m.id, m.title, m.measure_type, m.measure_number, m.jurisdiction, m.status, m.last_action_date,
+        f"""SELECT m.id, m.title, m.measure_type, m.measure_number, m.jurisdiction, m.status, m.last_action_date,
                   m.topic_tags, b.canonical_name AS body_name,
                   (SELECT COUNT(*) FROM TB_Vote_Motion mo WHERE mo.measure_id = m.id) AS n_motions,
                   (SELECT COUNT(*) FROM TB_Measure_Event me WHERE me.measure_id = m.id) AS n_events
@@ -136,31 +163,36 @@ def list_measures(q: str = "", jurisdiction: str = "", mtype: str = "", limit: i
            WHERE (%(q)s = '' OR m.title ILIKE '%%' || %(q)s || '%%' OR m.measure_number ILIKE '%%' || %(q)s || '%%')
              AND (%(j)s = '' OR m.jurisdiction = %(j)s)
              AND (%(t)s = '' OR m.measure_type = %(t)s)
+             -- procedural items ("Approval of March minutes") unless a substantive vote is filed under them
+             AND NOT ({_procedural('m.title')}
+                      AND NOT EXISTS (SELECT 1 FROM TB_Vote_Motion mo
+                                      WHERE mo.measure_id = m.id AND NOT {_procedural('mo.motion_text')}))
            ORDER BY m.last_action_date DESC NULLS LAST, m.id DESC LIMIT %(limit)s""",
-        {"q": q.strip(), "j": jurisdiction, "t": mtype, "limit": limit},
+        {"q": q.strip(), "j": jurisdiction, "t": mtype, "limit": limit, **PROCEDURAL},
     )
 
 
 def entity_votes(entity_id: int, topic: str = "", limit: int = 300) -> List[Row]:
     return db.fetch_all(
-        """SELECT * FROM VW_Voting_Record
+        f"""SELECT * FROM VW_Voting_Record
            WHERE entity_id = %(e)s AND (%(t)s = '' OR %(t)s = ANY(topic_tags))
+             AND NOT {_procedural('motion_text')}
            ORDER BY vote_date DESC NULLS LAST, motion_id DESC LIMIT %(limit)s""",
-        {"e": entity_id, "t": topic, "limit": limit},
+        {"e": entity_id, "t": topic, "limit": limit, **PROCEDURAL},
     )
 
 
 def entity_vote_summary(entity_id: int) -> List[Row]:
     """Per topic: how the member voted and how often against the majority."""
     return db.fetch_all(
-        """SELECT t AS topic, COUNT(*) AS n,
+        f"""SELECT t AS topic, COUNT(*) AS n,
                   COUNT(*) FILTER (WHERE vote = 'AYE') AS ayes, COUNT(*) FILTER (WHERE vote = 'NO') AS noes,
                   COUNT(*) FILTER (WHERE vote = 'ABSTAIN') AS abstentions,
                   COUNT(*) FILTER (WHERE vote IN ('ABSENT', 'RECUSED')) AS not_voting,
                   COUNT(*) FILTER (WHERE dissent) AS dissents
            FROM VW_Voting_Record, unnest(CASE WHEN cardinality(topic_tags) > 0 THEN topic_tags
                                                ELSE ARRAY['(untagged)'] END) t
-           WHERE entity_id = %s
+           WHERE entity_id = %(e)s AND NOT {_procedural('motion_text')}
            GROUP BY t ORDER BY n DESC, t""",
-        (entity_id,),
+        {"e": entity_id, **PROCEDURAL},
     )

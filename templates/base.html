@@ -13,6 +13,7 @@
   <style>
     .wiki-prose a { color: #2563eb; } .wiki-prose a:hover { text-decoration: underline; }
     [x-cloak] { display: none; }
+    .search-miss { display: none !important; }
   </style>
   {% block head %}{% endblock %}
 </head>
@@ -65,6 +66,7 @@
   <script src="{{ url_for('static', filename='vendor/handlebars-4.7.8.min.js') }}"></script>
   <script src="{{ url_for('static', filename='js/common.js') }}"></script>
   <script src="{{ url_for('static', filename='hbs/search_hbs.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/sections.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

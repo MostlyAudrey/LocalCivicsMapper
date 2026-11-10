@@ -19,3 +19,42 @@
 {% macro event_type(t) -%}
 <span class="text-[11px] uppercase tracking-wide text-slate-500">{{ t|replace('_', ' ') }}</span>
 {%- endmacro %}
+
+{# ---- collapsible page sections (static/js/sections.js adds jump links, open-on-#hash and in-page search) ---- #}
+{% macro section_nav() -%}
+<nav id="section-nav" class="sticky top-0 z-20 -mx-4 mb-5 border-b border-slate-200 bg-slate-50/95 px-4 py-2 backdrop-blur">
+  <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+    <input id="section-search" type="search" placeholder="Search this page…"
+           class="w-full rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm sm:w-56">
+    <span class="text-xs uppercase tracking-wide text-slate-400">Jump to</span>
+    <span id="section-links" class="flex flex-wrap gap-x-3 gap-y-1"></span>
+    <span class="ml-auto flex gap-2 text-xs">
+      <button type="button" id="sections-open" class="text-blue-600 hover:underline">expand all</button>
+      <button type="button" id="sections-close" class="text-blue-600 hover:underline">collapse all</button>
+    </span>
+  </div>
+</nav>
+{%- endmacro %}
+
+{% macro section(id, title, note='', cls='mt-6') -%}
+<details id="{{ id }}" data-section="{{ title }}" class="group {{ cls }} scroll-mt-16 rounded-xl border border-slate-200 bg-white">
+  <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 select-none hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+    <span class="text-xs text-slate-400 transition-transform group-open:rotate-90">▶</span>
+    <h2 class="font-serif text-2xl">{{ title }}</h2>
+    <span class="section-hits hidden rounded-full bg-amber-100 px-2 text-xs text-amber-800"></span>
+    {% if note %}<span class="ml-auto text-xs text-slate-500">{{ note }}</span>{% endif %}
+  </summary>
+  <div class="border-t border-slate-100 px-4 pb-4 pt-3">{{ caller() }}</div>
+</details>
+{%- endmacro %}
+
+{% macro side_section(id, title, color='text-slate-500', open=False) -%}
+<details id="{{ id }}" data-section="{{ title }}" class="group scroll-mt-16 rounded-xl border border-slate-200 bg-white text-sm"{% if open %} open{% endif %}>
+  <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 select-none hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+    <span class="text-[10px] text-slate-400 transition-transform group-open:rotate-90">▶</span>
+    <h3 class="text-xs font-semibold uppercase tracking-wide {{ color }}">{{ title }}</h3>
+    <span class="section-hits hidden rounded-full bg-amber-100 px-2 text-xs text-amber-800"></span>
+  </summary>
+  <div class="border-t border-slate-100 px-4 pb-3 pt-2">{{ caller() }}</div>
+</details>
+{%- endmacro %}

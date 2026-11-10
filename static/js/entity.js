@@ -71,11 +71,20 @@ $(function () {
     $.get(`/api/entity/${entityId}/ledger`, { sort: sort, topic: topic, commentary: commentary ? "1" : "0" })
       .done(function (data) {
         $("#ledger-rows").html(ledger_compiled({ rows: data.rows, topic: topic, is_admin: data.is_admin })).css("opacity", 1);
+        if (window.Sections) Sections.refresh();
       })
       .fail(function () {
         $("#ledger-rows").html('<p class="text-sm text-rose-600">Could not load the ledger.</p>').css("opacity", 1);
       });
   }
+
+  // topic tags are hidden until asked for (shown when a topic filter is active)
+  $("#ledger-topics-toggle").on("click", function () {
+    const show = $("#ledger-topics").hasClass("hidden");
+    $("#ledger-topics").toggleClass("hidden", !show).toggleClass("flex", show);
+    $(this).attr("aria-expanded", String(show))
+      .text((show ? "▾" : "▸") + $(this).text().replace(/^[▾▸]/, ""));
+  });
 
   $("#ledger-sort").on("click", "button", function () { sort = $(this).data("sort"); load(); });
   $("#ledger-topics").on("click", "button", function () { topic = String($(this).data("topic") || ""); load(); });

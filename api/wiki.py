@@ -66,7 +66,7 @@ def entity(entity_id: int):
         abort(404)
     return render_template(
         "entity.html", e=ent,
-        affiliations=db_wiki.entity_affiliations(entity_id),
+        affiliations=db_wiki.entity_affiliations_condensed(entity_id),
         members=db_wiki.entity_members(entity_id) if ent["entity_type"] != "PERSON" else [],
         topics=db_wiki.entity_topics(entity_id),
         allies=db_wiki.entity_coalition(entity_id, allies=True),
@@ -112,6 +112,7 @@ def measure(measure_id: int):
     issue = db_measures.measure_issue_events(measure_id)
     people = db_measures.measure_people(measure_id, [e["id"] for e in explicit] + [e["id"] for e in issue])
     return render_template("measure.html", m=m, motions=db_measures.measure_motions(measure_id),
+                           procedural_hidden=db_measures.count_procedural_motions(measure_id),
                            explicit=explicit, issue=issue,
                            supporters=[p for p in people if p["n_support"] > p["n_oppose"]],
                            opponents=[p for p in people if p["n_oppose"] > p["n_support"]],
