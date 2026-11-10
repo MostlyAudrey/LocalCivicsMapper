@@ -3,6 +3,7 @@
 !/.gitignore
 !/.web.example
 !/CLAUDE.md
+!/README.md
 !/PLAN_CITY_RECORDS.md
 !/PLAN_MANUAL_DOCUMENTS.md
 !/SPEC_WEB_CRAWLER_PARSER.md
