@@ -89,6 +89,7 @@ def queue_by_source() -> List[Row]:
         SELECT s.id, s.name, s.is_active, s.last_crawled_at,
                COUNT(a.id) FILTER (WHERE a.processing_status IN ('PENDING', 'STAGE1_DONE')) AS queued,
                COUNT(a.id) FILTER (WHERE a.processing_status = 'PROCESSED') AS processed,
+               COUNT(a.id) FILTER (WHERE a.processing_status = 'SKIPPED') AS skipped,
                COUNT(a.id) FILTER (WHERE a.processing_status = 'FAILED') AS failed,
                MAX(a.published_at) AS newest
         FROM TB_Sources s LEFT JOIN TB_Article a ON a.source_id = s.id

@@ -5,13 +5,14 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime
+import typing
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from typing import List, Literal, Optional, Protocol, Tuple
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field, ValidationError
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from civic_tracker.config import settings
 from civic_tracker.pipeline.telemetry import llm_call_timer, usage_fields
@@ -237,7 +238,45 @@ def parse_extraction(content: str) -> ArticleExtractionResult:
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1:
         raise ValueError(f"LLM response contained no JSON object: {content[:200]!r}")
-    return ArticleExtractionResult.model_validate(json.loads(text[start : end + 1]))
+    return ArticleExtractionResult.model_validate(fit_lengths(ArticleExtractionResult, json.loads(text[start : end + 1])))
+
+
+def _submodel(annotation):
+    """The BaseModel inside List[X] / Optional[X] / X, if any."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    for a in typing.get_args(annotation):
+        m = _submodel(a)
+        if m:
+            return m
+    return None
+
+
+def _trim(s: str, n: int) -> str:
+    cut = s[: n - 1]
+    stop = max(cut.rfind(". "), cut.rfind("; "))
+    cut = cut[: stop + 1] if stop >= n // 2 else cut[: cut.rfind(" ")] if cut.rfind(" ") >= n // 2 else cut
+    return cut.rstrip(" ,;:") + "…"
+
+
+def fit_lengths(model_cls, data):
+    """Shorten strings that exceed a field's max_length (a 450-char motion) instead of failing validation and
+    throwing away the whole article's extraction. Cuts at a sentence/word boundary and adds '…'."""
+    if isinstance(data, list):
+        return [fit_lengths(model_cls, d) for d in data]
+    if not isinstance(data, dict):
+        return data
+    for name, f in model_cls.model_fields.items():
+        v = data.get(name)
+        if isinstance(v, str):
+            ml = next((m.max_length for m in f.metadata if getattr(m, "max_length", None)), None)
+            if ml and len(v) > ml:
+                data[name] = _trim(v, ml)
+        elif v is not None:
+            sub = _submodel(f.annotation)
+            if sub:
+                data[name] = fit_lengths(sub, v)
+    return data
 
 
 _BRACKET_ANNOTATION = re.compile(r"\s?\[[^\]]{1,80}\]")
@@ -384,6 +423,60 @@ JSON_OBJECT_INSTRUCTIONS = (
 )
 
 
+class OutputTruncated(ValueError):
+    """The model hit max_tokens. Seen locally as a repetition loop in the JSON (reasoning ~3-9K tokens, then the
+    answer runs to the cap): minutes of slot time per attempt, so it isn't blindly retried."""
+
+
+class TruncationFallbackExtractor:
+    """Local model first. When its output is truncated, send that article to the API model (built lazily by
+    `fallback_factory`, e.g. DeepSeekExtractor.burst) instead of retrying locally - within a per-UTC-day spend
+    cap. Without a fallback (no API key, cap reached) the local model gets one more try."""
+
+    def __init__(self, primary, fallback_factory=None,
+                 daily_cap_usd: float = settings.TRUNCATION_FALLBACK_DAILY_USD) -> None:
+        self.primary = primary
+        self._factory = fallback_factory
+        self._fallback = None
+        self.daily_cap_usd = daily_cap_usd
+        self._day = None
+        self._day_start_spend = 0.0
+        self.fallbacks = 0
+
+    def __getattr__(self, name):  # model / provider / spent_usd ... of the primary
+        return getattr(self.primary, name)
+
+    def _get_fallback(self):
+        if self._factory is None:
+            return None
+        if self._fallback is None:
+            try:
+                self._fallback = self._factory()
+            except Exception as exc:  # noqa: BLE001 - e.g. no API key: just keep retrying locally
+                log.warning("truncation fallback unavailable: %s", exc)
+                self._factory = None
+                return None
+        today = datetime.now(timezone.utc).date()
+        if self._day != today:
+            self._day, self._day_start_spend = today, self._fallback.spent_usd
+        if self._fallback.spent_usd - self._day_start_spend >= self.daily_cap_usd:
+            return None
+        return self._fallback
+
+    async def extract(self, *args, **kwargs) -> ArticleExtractionResult:
+        try:
+            return await self.primary.extract(*args, **kwargs)
+        except OutputTruncated as exc:
+            fb = self._get_fallback()
+            title = args[0] if args else kwargs.get("title")
+            if fb is None:
+                log.warning("%s on %r; no API fallback (unavailable or daily cap) - retrying locally", exc, title)
+                return await self.primary.extract(*args, **kwargs)
+            self.fallbacks += 1
+            log.info("%s on %r; sending it to %s (%s)", exc, title, fb.provider, fb.model)
+            return await fb.extract(*args, **kwargs)
+
+
 class DeepSeekExtractor:
     """OpenAI-compatible extraction client. Default: the local vLLM/SGLang server (strict json_schema guided
     decoding). `DeepSeekExtractor.burst()` builds the paid-API variant used by burst mode."""
@@ -443,7 +536,9 @@ class DeepSeekExtractor:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=2, max=30),
-        retry=retry_if_exception_type((ValidationError, ValueError, json.JSONDecodeError)),
+        # a truncated output is NOT retried here: TruncationFallbackExtractor decides (API model or one retry)
+        retry=retry_if_exception(lambda e: isinstance(e, (ValidationError, ValueError, json.JSONDecodeError))
+                                 and not isinstance(e, OutputTruncated)),
         reraise=True,
     )
     async def _call(self, user_prompt: str, on_call=None) -> ArticleExtractionResult:
@@ -491,7 +586,7 @@ class DeepSeekExtractor:
         self.spent_usd += meta["cost_usd"]
         choice = resp.choices[0]
         if choice.finish_reason == "length":
-            raise ValueError(f"LLM output truncated at max_tokens={self.max_tokens}")
+            raise OutputTruncated(f"LLM output truncated at max_tokens={self.max_tokens}")
         return parse_extraction(choice.message.content or "")
 
     async def extract(

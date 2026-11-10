@@ -35,7 +35,7 @@ from civic_tracker.pipeline.alerts import send_job_alert
 from civic_tracker.pipeline.encoder import LocalEncoderClient
 from civic_tracker.pipeline.orchestrator import Orchestrator, RunStats
 from civic_tracker.pipeline.stage1_nlp import Stage1Processor
-from civic_tracker.pipeline.stage2_llm import DeepSeekExtractor
+from civic_tracker.pipeline.stage2_llm import DeepSeekExtractor, TruncationFallbackExtractor
 from civic_tracker.pipeline.stage3_wiki import WikiBioWriter, eligible_dirty_entities, synthesize_entity
 from civic_tracker.pipeline.triage import Triage
 
@@ -88,7 +88,10 @@ class Worker:
         self.n_slots = max(1, slots)
         self.encoder = LocalEncoderClient()
         self.triage = Triage() if settings.TRIAGE_ENABLED else None  # shared by local + burst slots
-        self.orch = Orchestrator(pool, stage1=Stage1Processor(), extractor=DeepSeekExtractor(),
+        # local model; an output that hits max_tokens goes to the API model (daily cap) instead of a local retry
+        fallback = DeepSeekExtractor.burst if settings.TRUNCATION_FALLBACK_TO_API and settings.BURST_LLM_API_KEY else None
+        self.orch = Orchestrator(pool, stage1=Stage1Processor(),
+                                 extractor=TruncationFallbackExtractor(DeepSeekExtractor(), fallback),
                                  encoder=self.encoder, concurrency=self.n_slots, triage=self.triage)
         self.bio_writer = WikiBioWriter()
         self.stop_event = asyncio.Event()

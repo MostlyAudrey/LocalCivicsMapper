@@ -111,12 +111,14 @@ const admin_queue_template = `
 <div class="overflow-x-auto"><table class="w-full min-w-[34rem] text-sm">
   <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500">
     <th class="py-1">Source</th><th class="text-right">Queued</th><th class="text-right">Processed</th>
+    <th class="text-right" title="Triaged out (off-topic / not local) or no entities found">Skipped</th>
     <th class="text-right">Failed</th><th class="text-right">Newest article</th><th class="text-right">Last crawled</th></tr></thead>
   <tbody>
   {{#each queue_by_source}}
     <tr class="border-t border-slate-100 {{#unless is_active}}text-slate-400{{/unless}}">
       <td class="py-1">{{name}}{{#unless is_active}} <span class="text-xs">(inactive)</span>{{/unless}}</td>
       <td class="text-right">{{queued}}</td><td class="text-right">{{processed}}</td>
+      <td class="text-right text-slate-500">{{skipped}}</td>
       <td class="text-right">{{#if failed}}<span class="text-rose-600">{{failed}}</span>{{else}}0{{/if}}</td>
       <td class="text-right">{{fmtDate newest}}</td><td class="text-right">{{fmtDateTime last_crawled_at}}</td>
     </tr>

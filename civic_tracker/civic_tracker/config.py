@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     BURST_PRICE_INPUT_PER_M: float = 0.30        # USD per 1M input tokens (peak; cache hits are cheaper)
     BURST_PRICE_OUTPUT_PER_M: float = 1.20       # USD per 1M output tokens (peak)
     BURST_DEFAULT_SPEND_CAP_USD: float = 5.0
+    # When the local model's output hits LLM_MAX_TOKENS (almost always a repetition loop that ties up a slot
+    # for minutes), send that article to the burst API model instead of retrying locally. Needs
+    # BURST_LLM_API_KEY; capped per UTC day (then it falls back to one local retry).
+    TRUNCATION_FALLBACK_TO_API: bool = True
+    TRUNCATION_FALLBACK_DAILY_USD: float = 2.0
 
     # Worker daemon (civic-tracker worker)
     WORKER_SLOTS: int = 4                 # parallel article slots (concurrent LLM requests)
