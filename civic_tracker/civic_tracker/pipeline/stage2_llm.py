@@ -443,8 +443,13 @@ class TruncationFallbackExtractor:
         self._day_start_spend = 0.0
         self.fallbacks = 0
 
-    def __getattr__(self, name):  # model / provider / spent_usd ... of the primary
+    def __getattr__(self, name):  # model / provider ... of the primary
         return getattr(self.primary, name)
+
+    @property
+    def spent_usd(self) -> float:
+        """Primary + fallback spend (spend caps see the API calls made on the local model's behalf)."""
+        return self.primary.spent_usd + (self._fallback.spent_usd if self._fallback is not None else 0.0)
 
     def _get_fallback(self):
         if self._factory is None:

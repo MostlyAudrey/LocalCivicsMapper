@@ -29,6 +29,47 @@ log = logging.getLogger(__name__)
 
 MEASURE_TITLE_TRGM = 0.55
 MEASURE_TITLE_COS = 0.88
+
+# Similar-looking titles that are NOT the same measure (2026-11-10): "Appointment of Noel Ashford as
+# President" vs "...Maureen Tull as Vice President"; "Minutes of December 13, 2020" vs "...April 21, 2021";
+# "Consent calendar items 4 through 15" from five different meetings.
+_MONTHS = ("january february march april may june july august september october november december "
+           "jan feb mar apr jun jul aug sep sept oct nov dec").split()
+# capitalised words that don't distinguish one item from another
+_GENERIC_CAPS = set("""
+a an and as at by for from in of on or the to with approval approve approving adopt adoption appointment
+appoint election elect nomination nominate selection select reappointment item items agenda minutes meeting
+meetings regular special council city county board commission committee subcommittee trustees trustee
+president vice chair chairperson member members officer officers resolution ordinance no number consent
+calendar public hearing report annual fiscal year fy budget amendment agreement contract plan program project
+policy update review request authorization authorize
+""".split())
+# titles too generic to stand for one item across meetings: only the same meeting date may share them
+_PER_MEETING = re.compile(r"\b(consent\s+calendar|minutes|agenda|meeting\s+schedule|election\s+of\s+officers|"
+                          r"officers?|chair|vice[\s-]chair|president)\b", re.I)
+
+
+def _numbers(title: str) -> set:
+    toks = re.findall(r"[A-Za-z]+|\d+", title.lower())
+    return {t.lstrip("0") or "0" for t in toks if t.isdigit()} | {t[:3] for t in toks if t in _MONTHS}
+
+
+def _distinctive(title: str) -> set:
+    return {w.lower() for w in re.findall(r"\b[A-Z][a-zA-Z'’-]+", title) if w.lower() not in _GENERIC_CAPS}
+
+
+def titles_compatible(new: str, existing: str) -> bool:
+    """Could two measure titles mean the same item? Not when their numbers/dates differ, or when EACH names
+    something the other doesn't (different people, places, projects). One title merely being more specific
+    ("Village Farms" vs "Village Farms Davis development") is fine."""
+    na, nb = _numbers(new), _numbers(existing)
+    if na and nb and na != nb:
+        return False
+    da, db = _distinctive(new), _distinctive(existing)
+    low_a, low_b = new.lower(), existing.lower()
+    only_a = {w for w in da - db if w not in low_b}
+    only_b = {w for w in db - da if w not in low_a}
+    return not (only_a and only_b)
 _TYPE_PREFIX = {"ORDINANCE": "ORD", "RESOLUTION": "RES", "BALLOT_MEASURE": "MEASURE", "CONTRACT": "CONTRACT",
                 "BUDGET": "BUDGET", "APPOINTMENT": "APPT", "LAND_USE": "LU", "POLICY": "POLICY", "OTHER": "ITEM"}
 _NUM_WORDS = re.compile(r"\b(?:no\.?|number|#)\s*", re.I)
@@ -111,7 +152,8 @@ async def resolve_measure(
     [emb] = await encoder.embed([f"{ref.measure_type} {title}"], task="EVENT_DEDUP")
     if row is None:
         cur = await conn.execute(
-            """SELECT id, similarity(title, %(t)s) AS trgm, 1 - (title_embedding <=> %(e)s::vector) AS cos
+            """SELECT id, title, last_action_date, first_action_date, similarity(title, %(t)s) AS trgm,
+                      1 - (title_embedding <=> %(e)s::vector) AS cos
                FROM TB_Measure
                WHERE (body_entity_id IS NOT DISTINCT FROM %(b)s::int
                       OR (%(b)s::int IS NULL AND jurisdiction = %(j)s::text))
@@ -120,10 +162,19 @@ async def resolve_measure(
                       OR ABS(last_action_date - %(d)s::date) <= 1100)
                  AND (similarity(title, %(t)s) >= %(mt)s OR 1 - (title_embedding <=> %(e)s::vector) >= %(mc)s)
                ORDER BY GREATEST(similarity(title, %(t)s), 1 - (title_embedding <=> %(e)s::vector)) DESC
-               LIMIT 1""",
+               LIMIT 5""",
             {"t": title, "e": to_vector_literal(emb), "b": body_id, "j": jurisdiction, "k": key,
              "d": action_date, "mt": MEASURE_TITLE_TRGM, "mc": MEASURE_TITLE_COS})
-        row = await cur.fetchone()
+        per_meeting = bool(_PER_MEETING.search(title)) and not key
+        for cand in await cur.fetchall():
+            if not titles_compatible(title, cand["title"]):
+                continue
+            # "Consent calendar", "Approval of minutes", officer elections: one item per meeting
+            if per_meeting and action_date and cand["last_action_date"] and \
+                    action_date not in (cand["last_action_date"], cand["first_action_date"]):
+                continue
+            row = cand
+            break
     if row is None:
         if not create:
             return None

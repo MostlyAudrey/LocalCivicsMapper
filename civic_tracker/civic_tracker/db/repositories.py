@@ -208,14 +208,28 @@ async def delete_orphans(conn: AsyncConnection) -> Dict[str, int]:
     affiliations (e.g. op-ed authors that are no longer extracted as actors)."""
     ev = await conn.execute(
         "DELETE FROM TB_Event ev WHERE NOT EXISTS (SELECT 1 FROM TB_Article_Event ae WHERE ae.event_id = ev.id)")
+    measures = 0
+    cur = await conn.execute("SELECT to_regclass('tb_measure') IS NOT NULL AS ok")
+    votes_ready = (await cur.fetchone())["ok"]
+    if votes_ready:  # v1.8: measures no vote and no event refers to any more
+        m = await conn.execute(
+            """DELETE FROM TB_Measure m
+               WHERE NOT EXISTS (SELECT 1 FROM TB_Vote_Motion mo WHERE mo.measure_id = m.id)
+                 AND NOT EXISTS (SELECT 1 FROM TB_Measure_Event me WHERE me.measure_id = m.id)""")
+        measures = m.rowcount
+    # an entity still voting or acting as a measure's body is kept (v1.8)
+    in_use = """
+          AND NOT EXISTS (SELECT 1 FROM TB_Vote v WHERE v.entity_id = e.id)
+          AND NOT EXISTS (SELECT 1 FROM TB_Measure mm WHERE mm.body_entity_id = e.id)
+          AND NOT EXISTS (SELECT 1 FROM TB_Vote_Motion vm WHERE vm.body_entity_id = e.id)""" if votes_ready else ""
     en = await conn.execute(
         """
         DELETE FROM TB_Entity e
         WHERE NOT EXISTS (SELECT 1 FROM TB_Entity_Event ee WHERE ee.entity_id = e.id)
           AND NOT EXISTS (SELECT 1 FROM TB_Entity_Affiliation a WHERE a.entity_id = e.id OR a.organization_id = e.id)
-        """
+        """ + in_use
     )
-    return {"events": ev.rowcount, "entities": en.rowcount}
+    return {"events": ev.rowcount, "entities": en.rowcount, "measures": measures}
 
 
 async def get_source(conn: AsyncConnection, source_id: int) -> Optional[Row]:

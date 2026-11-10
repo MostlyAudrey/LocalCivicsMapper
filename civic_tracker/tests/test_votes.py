@@ -24,6 +24,21 @@ def test_number_key_and_member_names():
     assert M.clean_member_name("Councilmember Gloria Ravel") == "Gloria Ravel"
 
 
+@pytest.mark.parametrize("a,b,ok", [
+    # different people / offices / dates / meetings are different items
+    ("Appointment of Maureen Tull as Vice President of the Woodland Library Board",
+     "Appointment of Noel Ashford as President of the Woodland Library Board", False),
+    ("Minutes for April 21, 2021 meeting", "Minutes for December 13, 2020 meeting", False),
+    ("Consent calendar items 3-10", "Consent calendar items 4 through 15", False),
+    # the same item, worded more or less specifically
+    ("Village Farms development agreement", "Village Farms Davis development agreement", True),
+    ("Downtown parking ordinance", "Ordinance on downtown parking", True),
+    ("Fiscal Year 2026/27 Annual Budget", "FY 2026/27 Annual Budget", True),
+])
+def test_measure_titles_compatible(a, b, ok):
+    assert M.titles_compatible(a, b) is ok
+
+
 def _members():
     return [ExtractedAffiliation(person_name=n, organization_name="Davis City Council", role_title="Councilmember")
             for n in ("Gloria Ravel", "Will Ashby", "Dan Corwin")]

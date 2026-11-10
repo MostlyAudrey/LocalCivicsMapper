@@ -274,7 +274,8 @@ def reextract(
     from civic_tracker.pipeline.encoder import LocalEncoderClient
     from civic_tracker.pipeline.orchestrator import Orchestrator, RunStats
     from civic_tracker.pipeline.stage1_nlp import Stage1Processor
-    from civic_tracker.pipeline.stage2_llm import DeepSeekExtractor
+    from civic_tracker.config import settings
+    from civic_tracker.pipeline.stage2_llm import DeepSeekExtractor, TruncationFallbackExtractor
 
     async def go():
         pool = await get_pool()
@@ -291,7 +292,12 @@ def reextract(
                     "SELECT id FROM TB_Article WHERE processing_status = 'PROCESSED' AND genre = %s "
                     "ORDER BY published_at DESC NULLS LAST", (genre,))
                 ids = [r["id"] for r in await cur.fetchall()]
-        extractor = DeepSeekExtractor.burst() if via == "burst" else DeepSeekExtractor()
+        # a truncated output gets one more try (local: on the API model, within the daily cap)
+        if via == "burst":
+            extractor = TruncationFallbackExtractor(DeepSeekExtractor.burst())
+        else:
+            extractor = TruncationFallbackExtractor(
+                DeepSeekExtractor(), DeepSeekExtractor.burst if settings.BURST_LLM_API_KEY else None)
         orch = Orchestrator(pool, stage1=Stage1Processor(), extractor=extractor, encoder=LocalEncoderClient(),
                             concurrency=concurrency)
         stats = RunStats()

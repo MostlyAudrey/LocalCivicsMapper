@@ -234,7 +234,10 @@ class Orchestrator:
             stats.note(f"FAILED #{aid}: {type(exc).__name__}: {str(exc)[:200]} | {title}")
             try:
                 async with self.pool.connection() as conn:
-                    await repo.set_article_status(conn, aid, "FAILED", traceback.format_exc()[-8000:])
+                    # a failed RE-extraction leaves the previous extraction untouched (the replace happens in
+                    # one transaction), so the article stays PROCESSED; the error is still logged
+                    await repo.set_article_status(conn, aid, "PROCESSED" if replace_existing else "FAILED",
+                                                  traceback.format_exc()[-8000:])
             except Exception:  # pragma: no cover
                 log.exception("could not mark article %s FAILED", aid)
             return "FAILED"

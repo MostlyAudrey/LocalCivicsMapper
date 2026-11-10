@@ -101,6 +101,8 @@
         <tr class="border-t border-slate-100 align-top">
           <td class="whitespace-nowrap py-1.5 pr-3 text-slate-500">{{ v.vote_date|date }}</td>
           <td class="py-1.5"><a class="text-blue-700 hover:underline" href="{{ url_for('wiki.measure', measure_id=v.measure_id) }}">{{ v.measure_title }}</a>
+            {% if v.motion_text and v.motion_text|lower != v.measure_title|lower %}
+            <div class="mt-0.5 text-xs text-slate-600" title="{{ v.motion_text }}">Motion: {{ v.motion_text|truncate(160) }}</div>{% endif %}
             <div class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">{{ measure_type(v.measure_type) }}
               {% if v.measure_number %}<span class="font-mono">{{ v.measure_number }}</span>{% endif %}
               {% if v.body_name %}<span>{{ v.body_name }}</span>{% endif %}{{ outcome(v.outcome) }}{% if v.tally %}<span class="font-mono">{{ v.tally }}</span>{% endif %}</div></td>
