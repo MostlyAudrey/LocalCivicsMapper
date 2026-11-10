@@ -1,0 +1,14 @@
+[Unit]
+Description=Civic Wiki website (Flask + gunicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root
+ExecStart=/root/.venv/bin/gunicorn -c /root/gunicorn.conf.py index:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

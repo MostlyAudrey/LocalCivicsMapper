@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "_votes.html" import measure_type, outcome %}
+{% block title %}Measures · Civic Wiki{% endblock %}
+{% block content %}
+<h1 class="mb-4 font-serif text-3xl">Measures</h1>
+<form class="mb-4 flex flex-wrap items-end gap-3 text-sm" method="get">
+  <label class="block"><span class="text-xs text-slate-500">Search</span>
+    <input name="q" value="{{ q }}" placeholder="title or number" class="w-64 rounded border border-slate-300 px-2 py-1"></label>
+  <label class="block"><span class="text-xs text-slate-500">Jurisdiction</span>
+    <select name="jurisdiction" class="rounded border border-slate-300 px-2 py-1">
+      <option value="">All</option>
+      {% for j in ['Davis', 'Woodland', 'West Sacramento', 'Winters', 'Yolo County'] %}<option {{ 'selected' if j == jurisdiction }}>{{ j }}</option>{% endfor %}
+    </select></label>
+  <label class="block"><span class="text-xs text-slate-500">Type</span>
+    <select name="type" class="rounded border border-slate-300 px-2 py-1">
+      <option value="">All</option>
+      {% for t in ['ORDINANCE', 'RESOLUTION', 'BUDGET', 'CONTRACT', 'LAND_USE', 'APPOINTMENT', 'POLICY', 'BALLOT_MEASURE', 'OTHER'] %}
+      <option value="{{ t }}" {{ 'selected' if t == mtype }}>{{ t|replace('_', ' ')|title }}</option>{% endfor %}
+    </select></label>
+  <button class="rounded-lg bg-blue-700 px-3 py-1.5 text-white hover:bg-blue-800">Filter</button>
+</form>
+<table class="w-full text-sm">
+  <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500">
+    <th class="py-2">Measure</th><th>Body</th><th>Last action</th><th>Status</th><th class="text-right">Votes</th><th class="text-right">Events</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr class="border-t border-slate-100 align-top">
+    <td class="py-2"><a class="text-blue-700 hover:underline" href="{{ url_for('wiki.measure', measure_id=r.id) }}">{{ r.title }}</a>
+      <div class="mt-0.5 flex items-center gap-2">{{ measure_type(r.measure_type) }}{% if r.measure_number %}<span class="font-mono text-xs text-slate-500">{{ r.measure_number }}</span>{% endif %}</div></td>
+    <td class="py-2 text-slate-600">{{ r.body_name or r.jurisdiction or '' }}</td>
+    <td class="py-2 text-slate-600">{{ r.last_action_date|date }}</td>
+    <td class="py-2">{{ outcome(r.status) }}</td>
+    <td class="py-2 text-right">{{ r.n_motions }}</td>
+    <td class="py-2 text-right">{{ r.n_events }}</td>
+  </tr>
+  {% else %}
+  <tr><td class="py-4 text-slate-400" colspan="6">No measures yet. They appear as articles naming ordinances, resolutions or projects are processed, and as official minutes are read.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

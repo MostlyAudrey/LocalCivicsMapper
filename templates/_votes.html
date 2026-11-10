@@ -1,0 +1,28 @@
+{# Shared vote / measure badges #}
+{% macro vote_badge(v) -%}
+{%- set c = {'AYE': 'bg-emerald-100 text-emerald-800 ring-emerald-300', 'NO': 'bg-rose-100 text-rose-800 ring-rose-300',
+             'ABSTAIN': 'bg-amber-100 text-amber-800 ring-amber-300'}.get(v, 'bg-slate-100 text-slate-600 ring-slate-300') -%}
+<span class="inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset {{ c }}">{{ v|title if v not in ('AYE', 'NO') else ('Aye' if v == 'AYE' else 'No') }}</span>
+{%- endmacro %}
+
+{% macro measure_type(t) -%}
+<span class="rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] font-medium text-indigo-800 ring-1 ring-inset ring-indigo-200">{{ (t or 'OTHER')|replace('_', ' ')|title }}</span>
+{%- endmacro %}
+
+{% macro outcome(o) -%}
+{%- if o -%}
+{%- set c = {'PASSED': 'text-emerald-700', 'FAILED': 'text-rose-700'}.get(o, 'text-slate-600') -%}
+<span class="text-xs font-semibold {{ c }}">{{ o|title }}</span>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro article_list(articles) -%}
+<ul class="mt-1 space-y-1 text-sm">
+  {% for a in articles %}
+  <li><a href="{{ a.url }}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">{{ a.title }}</a>
+    <span class="text-xs text-slate-500">· {{ a.source }} · {{ (a.published_at or '')[:10] }}
+      {% if a.genre == 'official_record' %}<span class="ml-1 rounded bg-sky-50 px-1.5 py-0.5 text-[11px] text-sky-800 ring-1 ring-inset ring-sky-200">official record</span>
+      {% elif a.genre == 'opinion' %}<span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-800 ring-1 ring-inset ring-amber-200">opinion</span>{% endif %}</span></li>
+  {% endfor %}
+</ul>
+{%- endmacro %}

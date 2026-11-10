@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Admin sign in' if admin else 'Sign in' }} · Civic Wiki{% endblock %}
+{% block content %}
+<div class="mx-auto mt-16 max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+  <h1 class="font-serif text-2xl mb-1">{{ 'Admin sign in' if admin else 'Civic Wiki' }}</h1>
+  <p class="text-sm text-slate-500 mb-5">
+    {% if admin %}Enter the admin password.{% else %}This site is private. Enter the site password.{% endif %}
+  </p>
+  {% if not site_password_set %}
+    <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+      No site password has been set yet. An admin can set one under
+      <a class="underline" href="{{ url_for('auth.admin_login') }}">Admin → Settings</a>.
+    </div>
+  {% endif %}
+  {% if error %}<div class="mb-4 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">{{ error }}</div>{% endif %}
+  <form method="post">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label class="block text-sm font-medium mb-1" for="password">Password</label>
+    <input id="password" name="password" type="password" autofocus required autocomplete="current-password"
+           class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+    <button class="mt-4 w-full rounded-lg bg-blue-700 px-3 py-2 text-white font-medium hover:bg-blue-800">Sign in</button>
+  </form>
+  <p class="mt-4 text-xs text-slate-400 text-center">
+    {% if admin %}<a class="hover:underline" href="{{ url_for('auth.login') }}">Viewer sign in</a>
+    {% else %}<a class="hover:underline" href="{{ url_for('auth.admin_login') }}">Admin sign in</a>{% endif %}
+  </p>
+</div>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% macro stance_badge(stance) -%}
+<span class="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold tracking-wide ring-1 ring-inset {{ stance_color(stance) }}">{{ stance }}</span>
+{%- endmacro %}
+
+{% macro type_badge(t) -%}
+<span class="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium {{ type_color(t) }}">{{ t|type_label }}</span>
+{%- endmacro %}
+
+{% macro entity_pill(id, name, stance=None) -%}
+<a href="{{ url_for('wiki.entity', entity_id=id) }}"
+   class="inline-flex items-center rounded-full px-2 py-0.5 text-xs ring-1 ring-inset hover:underline {{ stance_color(stance) if stance else 'bg-white text-slate-700 ring-slate-300' }}"
+   {% if stance %}title="{{ stance }}"{% endif %}>{{ name }}</a>
+{%- endmacro %}
+
+{% macro tag(t, active=False) -%}
+<a href="{{ url_for('wiki.search', topic=t) }}" class="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600 hover:bg-blue-50 hover:text-blue-700 {{ 'ring-1 ring-blue-400' if active }}">#{{ t }}</a>
+{%- endmacro %}
+
+{% macro event_type(t) -%}
+<span class="text-[11px] uppercase tracking-wide text-slate-500">{{ t|replace('_', ' ') }}</span>
+{%- endmacro %}

@@ -1,0 +1,8 @@
+{
+  "secret_key": "generated automatically on first start if missing",
+  "admin_password_hash": "set with: .venv/bin/flask --app index set-admin-password",
+  "embed_base_url": "http://EMBED_HOST:8002/v1",
+  "embed_model": "Qwen/Qwen3-Embedding-4B",
+  "embed_dim": 1024,
+  "session_days": 30
+}

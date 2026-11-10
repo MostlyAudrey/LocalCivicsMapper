@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% from "_macros.html" import stance_badge, type_badge, tag, event_type %}
+{% block title %}{{ q or topic or 'Search' }} · Civic Wiki{% endblock %}
+{% block content %}
+<div class="mb-4 flex flex-wrap items-center gap-3">
+  <h1 class="font-serif text-2xl">
+    {% if q %}Results for “{{ q }}”{% elif topic %}Topic #{{ topic }}{% else %}Browse topics{% endif %}
+  </h1>
+  {% if q %}
+  <div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-sm">
+    <a href="{{ url_for('wiki.search', q=q, mode='lexical', topic=topic) }}"
+       class="rounded-md px-3 py-1 {{ 'bg-blue-700 text-white' if mode != 'semantic' else 'text-slate-600' }}">Keyword</a>
+    <a href="{{ url_for('wiki.search', q=q, mode='semantic', topic=topic) }}"
+       class="rounded-md px-3 py-1 {{ 'bg-blue-700 text-white' if mode == 'semantic' else 'text-slate-600' }}">Positions (semantic)</a>
+  </div>
+  {% endif %}
+</div>
+{% if error %}<div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ error }}</div>{% endif %}
+
+<div class="mb-6 flex flex-wrap gap-1">
+  {% for t in topics %}
+    <a href="{{ url_for('wiki.search', q=q or None, mode=mode if q else None, topic=None if topic == t.tag else t.tag) }}"
+       class="rounded-full px-2 py-0.5 text-xs ring-1 ring-inset {{ 'bg-blue-700 text-white ring-blue-700' if topic == t.tag else 'bg-white text-slate-600 ring-slate-300 hover:ring-blue-400' }}">#{{ t.tag }} <span class="opacity-60">{{ t.n }}</span></a>
+  {% endfor %}
+</div>
+
+{% set r = results %}
+{% if r.positions %}
+<section class="mb-8">
+  <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Matching positions &amp; statements</h2>
+  <div class="space-y-2">
+  {% for p in r.positions %}
+    <div class="rounded-lg border border-slate-200 bg-white p-3">
+      <div class="flex flex-wrap items-center gap-2 text-sm">
+        <a class="font-medium hover:text-blue-700" href="{{ url_for('wiki.entity', entity_id=p.entity_id) }}">{{ p.canonical_name }}</a>
+        {{ stance_badge(p.stance) }}
+        <span class="text-slate-400">on</span>
+        <a class="hover:text-blue-700" href="{{ url_for('wiki.event', event_id=p.event_id) }}">{{ p.canonical_title }}</a>
+        {% if p.genre == 'opinion' %}<span class="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-800 ring-1 ring-inset ring-amber-200">opinion · {{ p.source_name }}</span>{% endif %}
+        {% if p.genre == 'official_record' %}<span class="rounded bg-sky-50 px-1.5 py-0.5 text-[11px] text-sky-800 ring-1 ring-inset ring-sky-200" title="City council agenda item / staff report">official record · {{ p.source_name }}</span>{% endif %}
+        {% if p.evidence_type == 'claimed' %}<span class="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-800 ring-1 ring-inset ring-amber-200">claimed{% if p.claimed_by %} by {{ p.claimed_by }}{% endif %}</span>{% endif %}
+        <span class="ml-auto text-xs text-slate-400">{{ p.event_date|date }} · match {{ '%.2f'|format(p.score) }}</span>
+      </div>
+      <p class="mt-1 text-sm text-slate-700">{{ p.action_summary|wiki_links }}</p>
+      {% for qt in (p.direct_quotes or [])[:2] %}
+        <blockquote class="mt-1 border-l-4 border-slate-200 pl-3 text-sm italic text-slate-600">“{{ qt }}”</blockquote>
+      {% endfor %}
+      <a href="{{ p.source_url }}" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-600 hover:underline">[source]</a>
+    </div>
+  {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if r.entities %}
+<section class="mb-8">
+  <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">People &amp; organizations</h2>
+  <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+  {% for e in r.entities %}
+    <a href="{{ url_for('wiki.entity', entity_id=e.id) }}" class="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:border-blue-300">
+      <div class="font-medium">{{ e.canonical_name }} {{ type_badge(e.entity_type) }}</div>
+      <div class="text-xs text-slate-500">{{ e.n_events }} event{{ '' if e.n_events == 1 else 's' }}{% if e.aliases %} · aka {{ e.aliases[:3]|join(', ') }}{% endif %}</div>
+    </a>
+  {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if r.events %}
+<section>
+  <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Events</h2>
+  <div class="space-y-2">
+  {% for ev in r.events %}
+    <div class="rounded-lg border border-slate-200 bg-white p-3">
+      <div class="flex items-center gap-2 text-xs text-slate-500">{{ ev.event_date|date }} {{ event_type(ev.event_type) }}</div>
+      <a class="font-serif text-lg hover:text-blue-700" href="{{ url_for('wiki.event', event_id=ev.id) }}">{{ ev.canonical_title }}</a>
+      <p class="text-sm text-slate-600 line-clamp-2">{{ ev.summary }}</p>
+      <div class="mt-1 flex flex-wrap gap-1">{% for t in ev.topic_tags or [] %}{{ tag(t, t == topic) }}{% endfor %}</div>
+    </div>
+  {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if (q or topic) and not (r.positions or r.entities or r.events) %}
+  <p class="text-slate-500">Nothing found.{% if mode != 'semantic' and q %} Try the <a class="text-blue-600 underline" href="{{ url_for('wiki.search', q=q, mode='semantic') }}">semantic positions search</a>.{% endif %}</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,18 @@
+[Unit]
+Description=Civic Tracker pipeline worker (crawl queue + continuous processing + Stage 3 bios)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/civic_tracker
+ExecStart=/root/civic_tracker/.venv/bin/civic-tracker worker
+# SIGTERM: in-flight articles are cancelled and returned to the queue (Stage 1 output kept)
+KillSignal=SIGTERM
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

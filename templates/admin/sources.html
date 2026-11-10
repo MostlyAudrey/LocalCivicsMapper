@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Sources · Admin{% endblock %}
+{% block content %}
+{% include "admin/_nav.html" %}
+<p class="mb-4 text-sm text-slate-500">
+  Crawls and backfills only <em>queue</em> articles; the worker's processor parses them continuously, newest first.
+  All crawling is polite: one request at a time per site, at least 5 s apart (or the site's robots.txt
+  Crawl-delay / the source's <code>crawl_delay</code>), backing off on HTTP 429.
+</p>
+
+<div class="space-y-4">
+{% for s in sources %}
+  <details class="rounded-xl border border-slate-200 bg-white {{ 'opacity-70' if not s.is_active }}">
+    <summary class="flex cursor-pointer flex-wrap items-center gap-3 px-4 py-3">
+      <span class="font-medium">#{{ s.id }} {{ s.name }}</span>
+      <span class="text-xs {{ 'text-emerald-700' if s.is_active else 'text-slate-400' }}">{{ 'active' if s.is_active else 'inactive' }}</span>
+      <span class="text-xs text-slate-500">{{ (s.scrape_config or {}).get('method', 'auto') }}</span>
+      <span class="text-xs text-slate-500" title="Source reliability">reliability {{ s.reliability }}</span>
+      <span class="ml-auto text-xs text-slate-500">{{ s.n_articles }} articles · {{ s.queued }} queued · last crawled {{ s.last_crawled_at|date('%b %-d %H:%M') }}</span>
+    </summary>
+    <div class="grid gap-6 border-t border-slate-100 p-4 lg:grid-cols-3">
+      <form method="post" class="space-y-2 text-sm lg:col-span-2">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="id" value="{{ s.id }}">
+        {% for field, label in [('name','Name'), ('base_url','Base URL'), ('sitemap_url','Sitemap URL'), ('rss_url','RSS URL')] %}
+        <label class="block"><span class="text-xs text-slate-500">{{ label }}</span>
+          <input name="{{ field }}" value="{{ s[field] or '' }}" {% if field in ('name','base_url') %}required{% endif %}
+                 class="w-full rounded border border-slate-300 px-2 py-1"></label>
+        {% endfor %}
+        <label class="block"><span class="text-xs text-slate-500">scrape_config (JSON: method, crawl_delay, timezone, strip_after, title_suffix_re, wp_api_base, listing_urls, article_pattern, note; civicclerk: tenant, jurisdiction, bodies, history_batch)</span>
+          <textarea name="scrape_config" rows="5" class="w-full rounded border border-slate-300 px-2 py-1 font-mono text-xs">{{ (s.scrape_config or {})|tojson(indent=2) }}</textarea></label>
+        <label class="block"><span class="text-xs text-slate-500">Reliability (0-1): scales the weight of everything this source reports. Opinion pieces and third-party claims are discounted further.</span>
+          <input name="reliability" type="number" min="0" max="1" step="0.05" value="{{ s.reliability }}" class="w-24 rounded border border-slate-300 px-2 py-1"></label>
+        <label class="inline-flex items-center gap-2"><input type="checkbox" name="is_active" {% if s.is_active %}checked{% endif %}> Active (included in scheduled crawls)</label>
+        <div><button class="rounded-lg bg-blue-700 px-3 py-1.5 text-white hover:bg-blue-800">Save</button></div>
+      </form>
+      <div class="space-y-4 text-sm">
+        <form method="post" action="{{ url_for('admin.crawl_source', source_id=s.id) }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <button class="w-full rounded-lg border border-slate-300 px-3 py-1.5 hover:border-blue-400">▶ Crawl recent now</button>
+        </form>
+        <form method="post" action="{{ url_for('admin.backfill', source_id=s.id) }}" class="rounded-lg border border-slate-200 p-3">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <div class="mb-2 font-medium">Retroactive backfill</div>
+          <label class="block"><span class="text-xs text-slate-500">Last N days</span>
+            <input name="backfill_days" type="number" min="1" class="w-full rounded border border-slate-300 px-2 py-1"></label>
+          <div class="my-1 text-center text-xs text-slate-400">or</div>
+          <label class="block"><span class="text-xs text-slate-500">Since</span>
+            <input name="since" type="date" class="w-full rounded border border-slate-300 px-2 py-1"></label>
+          <label class="mt-2 block"><span class="text-xs text-slate-500">Max articles (optional)</span>
+            <input name="limit" type="number" min="1" class="w-full rounded border border-slate-300 px-2 py-1"></label>
+          <button class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-1.5 text-white hover:bg-slate-900">Queue backfill</button>
+        </form>
+        <form method="post" action="{{ url_for('admin.toggle_source', source_id=s.id) }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <button class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs hover:border-orange-400">{{ 'Deactivate' if s.is_active else 'Activate' }}</button>
+        </form>
+      </div>
+    </div>
+  </details>
+{% endfor %}
+</div>
+
+<details class="mt-6 rounded-xl border border-dashed border-slate-300 bg-white">
+  <summary class="cursor-pointer px-4 py-3 font-medium">+ Add a source</summary>
+  <form method="post" id="add-source-form" class="space-y-2 border-t border-slate-100 p-4 text-sm">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <div class="flex flex-wrap items-end gap-3 rounded-lg bg-slate-50 p-3">
+      <label class="block"><span class="text-xs text-slate-500">Preset (fills in the fields below)</span>
+        <select id="source-preset" class="block rounded border border-slate-300 px-2 py-1">
+          <option value="">Custom / news site (auto-detect)</option>
+          <option value="wp_api">News site: WordPress API</option>
+          <option value="feed">News site: RSS feed only</option>
+          <option value="civicclerk">City council: CivicClerk portal</option>
+          <option value="agendacenter">City boards: CivicPlus Agenda Center</option>
+        </select></label>
+      <div id="civicclerk-fields" class="hidden flex flex-wrap items-end gap-3">
+        <label class="block"><span class="text-xs text-slate-500">City</span>
+          <input id="cc-city" placeholder="Woodland" class="w-36 rounded border border-slate-300 px-2 py-1"></label>
+        <label class="block"><span class="text-xs text-slate-500">CivicClerk name (from <code>NAME.portal.civicclerk.com</code>)</span>
+          <input id="cc-tenant" placeholder="woodlandca" class="w-36 rounded border border-slate-300 px-2 py-1"></label>
+        <label class="block"><span class="text-xs text-slate-500">Meeting bodies (comma-separated)</span>
+          <input id="cc-bodies" value="City Council" class="w-64 rounded border border-slate-300 px-2 py-1"></label>
+      </div>
+    </div>
+    {% for field, label in [('name','Name'), ('base_url','Base URL'), ('sitemap_url','Sitemap URL (optional)'), ('rss_url','RSS URL (optional)')] %}
+    <label class="block"><span class="text-xs text-slate-500">{{ label }}</span>
+      <input name="{{ field }}" {% if field in ('name','base_url') %}required{% endif %} class="w-full rounded border border-slate-300 px-2 py-1"></label>
+    {% endfor %}
+    <label class="block"><span class="text-xs text-slate-500">scrape_config JSON</span>
+      <textarea name="scrape_config" rows="3" class="w-full rounded border border-slate-300 px-2 py-1 font-mono text-xs">{"method": "auto", "timezone": "America/Los_Angeles"}</textarea></label>
+    <label class="block"><span class="text-xs text-slate-500">Reliability (0-1)</span>
+      <input name="reliability" type="number" min="0" max="1" step="0.05" value="1.0" class="w-24 rounded border border-slate-300 px-2 py-1"></label>
+    <label class="inline-flex items-center gap-2"><input type="checkbox" name="is_active" checked> Active</label>
+    <p class="text-xs text-slate-500">Check the site's robots.txt and terms before activating. Never set a browser User-Agent to get around bot protection.</p>
+    <div><button class="rounded-lg bg-blue-700 px-3 py-1.5 text-white hover:bg-blue-800">Add source</button></div>
+  </form>
+</details>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/sources.js') }}"></script>
+{% endblock %}

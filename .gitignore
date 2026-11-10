@@ -1,0 +1,38 @@
+# /root is also the home directory: ignore everything, then list the project's files (allow-list).
+/*
+!/.gitignore
+!/.web.example
+!/CLAUDE.md
+!/PLAN_CITY_RECORDS.md
+!/PLAN_MANUAL_DOCUMENTS.md
+!/SPEC_WEB_CRAWLER_PARSER.md
+!/SPEC_WEB_UI.md
+!/YOLO_COUNTY_RECORDS.md
+!/api/
+!/civic_tracker/
+!/deploy/
+!/gunicorn.conf.py
+!/index.py
+!/lib/
+!/requirements.txt
+!/sql/
+!/static/
+!/templates/
+!/tests/
+
+# Local config / secrets (CLAUDE.md rule 4)
+.db
+.web
+.file_service
+.env
+!.env.example
+# Data-derived files that name private individuals (the wiki's data stays on the LAN)
+/sql/data_fixes/
+# Environments & caches
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+logs/
+# full newspaper article used as a test fixture (copyrighted text; keep local)
+/civic_tracker/tests/data/

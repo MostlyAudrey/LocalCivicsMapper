@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "civic-tracker"
+version = "0.1.0"
+description = "Civic entity, event, and coalition intelligence pipeline for local news"
+requires-python = ">=3.11"
+dependencies = [
+    # Database
+    "psycopg[binary,pool]>=3.2",
+    "pgvector>=0.3",
+    # Crawler
+    "trafilatura>=2.0",
+    "httpx>=0.27",
+    "tenacity>=8.2",
+    "pypdf>=5",  # council staff reports (CivicClerk); text PDFs only, no OCR
+    # LLM + embedding SDK
+    "openai>=1.50",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    # CLI & scheduler
+    "typer>=0.12",
+    "rich>=13",
+    "apscheduler>=3.10,<4",
+]
+
+[project.optional-dependencies]
+# Stage 1 local NLP. Heavy (pulls torch); install on the worker that runs `process`.
+nlp = [
+    "spacy>=3.7",
+    "fastcoref>=2.1.6",
+    "gliner>=0.2.13",
+    # fastcoref 2.1.6 breaks on transformers 5 (missing all_tied_weights_keys);
+    # transformers 4.x needs huggingface_hub<1, which needs datasets<4.
+    "transformers>=4.51.3,<5",
+    "datasets<4",
+]
+test = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+civic-tracker = "civic_tracker.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["civic_tracker*"]
+
+[tool.setuptools.package-data]
+"civic_tracker.db" = ["schema.sql", "schema_web.sql", "schema_web_v15.sql", "schema_web_v16.sql", "schema_web_v17.sql", "schema_web_v18.sql"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
