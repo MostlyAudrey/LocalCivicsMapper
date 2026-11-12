@@ -145,24 +145,26 @@ class SidesBackfill:
         prompt = build_prompt(event, actors)
         meta = {"model": settings.BURST_LLM_MODEL, "provider": settings.BURST_PROVIDER_NAME,
                 "thinking": settings.BURST_THINKING}
-        status, error = "OK", None
-        with llm_call_timer(settings.BURST_PROVIDER_NAME) as timer:
-            try:
+        status, error, content = "OK", None, None
+        try:
+            # the timer sets duration_ms on exit, so the call is recorded after the `with` block
+            with llm_call_timer(settings.BURST_PROVIDER_NAME) as timer:
                 resp = await self.client.chat.completions.create(
                     model=settings.BURST_LLM_MODEL,
                     messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
                     temperature=0.0, max_tokens=settings.SIDES_BACKFILL_MAX_TOKENS,
                     response_format={"type": "json_object"}, extra_body=self.extra_body)
-                meta.update(usage_fields(resp))
-                meta["cost_usd"] = self._cost(meta)
-                self.stats.spent_usd += meta["cost_usd"]
-                return parse_answer(resp.choices[0].message.content or "", {a["id"] for a in actors})
-            except Exception as exc:  # noqa: BLE001 - recorded, the event stays unchecked for the next run
-                status, error = "ERROR", f"{type(exc).__name__}: {exc}"
-                raise
-            finally:
-                await record_llm_call(self.pool, kind="ASSIGN_SIDES", timer=timer, meta=meta, status=status,
-                                      input_chars=len(prompt), error=error)
+            meta.update(usage_fields(resp))
+            meta["cost_usd"] = self._cost(meta)
+            self.stats.spent_usd += meta["cost_usd"]
+            content = resp.choices[0].message.content or ""
+            return parse_answer(content, {a["id"] for a in actors})
+        except Exception as exc:  # noqa: BLE001 - recorded, the event stays unchecked for the next run
+            status, error = "ERROR", f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            await record_llm_call(self.pool, kind="ASSIGN_SIDES", timer=timer, meta=meta, status=status,
+                                  input_chars=len(prompt), error=error)
 
     async def _one(self, event: dict) -> None:
         async with self.sem:
