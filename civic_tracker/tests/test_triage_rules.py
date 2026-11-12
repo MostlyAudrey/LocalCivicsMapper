@@ -1,7 +1,23 @@
 """Wider-area sections (url_require_local): keep national/state stories only with a Yolo angle."""
 import asyncio
 
-from civic_tracker.pipeline.triage import Triage, TriageLabel, has_yolo_angle
+import pytest
+
+from civic_tracker.config import settings
+from civic_tracker.pipeline.triage import Triage, TriageLabel, has_yolo_angle, triage_prompt
+
+
+@pytest.fixture(autouse=True)
+def _reps(monkeypatch):  # made-up representatives: real names live in .env, not in the repo
+    monkeypatch.setattr(settings, "YOLO_REPRESENTATIVES",
+                        "Mike Tolliver=U.S. Rep., CA-4; Cecilia Ortega-Lind=Assemblymember, AD-4")
+
+
+def test_representatives_come_from_config():
+    assert "U.S. Rep., CA-4 Mike Tolliver" in triage_prompt() and "{reps}" not in triage_prompt()
+    assert has_yolo_angle("Vote", "Congressman Tolliver voted no.")
+    assert has_yolo_angle("Bill", "Ortega-Lind's bill passed.")      # distinctive hyphenated surname alone
+    assert not has_yolo_angle("Vote", "Tolliver Street repaving begins.")  # bare common surname: no
 
 
 class _FakeClassifier:

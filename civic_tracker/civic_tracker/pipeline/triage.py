@@ -76,8 +76,7 @@ yolo_relevance:
 - regional: not set in Yolo but directly about Yolo residents' representation or services, e.g. \
 California's 4th Congressional District race, state legislators or ballot measures specifically for districts \
 containing Yolo, Sacramento-region agencies serving Yolo. National or state stories about the actions, votes, \
-bills or statements of Yolo's representatives (U.S. Reps. Mike Tolliver and Doris Mayfield, Assemblymember \
-Cecilia Ortega-Lind, State Senator Christopher Caldwell) are regional.
+bills or statements of Yolo's representatives in Congress and the state Legislature{reps} are regional.
 - none: other counties/cities, statewide or national stories without a Yolo-specific angle.
 reason: one short sentence. Reply with JSON only."""
 
@@ -93,7 +92,7 @@ class LLMClassifier:
     async def classify(self, title: str, lead: str, source_name: str) -> TriageLabel:
         resp = await self.client.chat.completions.create(
             model=settings.LLM_MODEL,
-            messages=[{"role": "system", "content": TRIAGE_PROMPT},
+            messages=[{"role": "system", "content": triage_prompt()},
                       {"role": "user", "content": f"Source: {source_name}\nTitle: {title}\n\n{lead[:1500]}"}],
             temperature=0.0, max_tokens=200,
             response_format={"type": "json_schema",
@@ -119,20 +118,47 @@ _GAZ = [(re.compile(rf"\b{p}"), w) for p, w in GAZETTEER.items()]
 MAX_HITS_PER_TERM = 3
 
 # Yolo County's representatives in Congress and the state Legislature: national/state stories about them
-# count as Yolo-relevant. UPDATE AFTER ELECTIONS / REDISTRICTING (also named in TRIAGE_PROMPT below).
-YOLO_REPRESENTATIVES = {
-    "Mike Tolliver": "U.S. Rep., CA-4",
-    "Doris Mayfield": "U.S. Rep., CA-7 (West Sacramento)",
-    "Cecilia Ortega-Lind": "Assemblymember, AD-4",
-    "Christopher Caldwell": "State Senator, SD-3",
-}
-_REPS = re.compile(r"\b(" + "|".join(re.escape(n) for n in YOLO_REPRESENTATIVES)
-                   + r"|Rep\.? Tolliver|Congressman Tolliver|Ortega-Lind|Caldwell|Mayfield)\b")
+# count as Yolo-relevant. Names live in config (YOLO_REPRESENTATIVES in civic_tracker/.env, not in code):
+# "Full Name|extra term|...=Office; ..." (extra terms: distinctive surnames that identify them on their own).
+# UPDATE AFTER ELECTIONS / REDISTRICTING.
+def _rep_entries():
+    for part in (settings.YOLO_REPRESENTATIVES or "").split(";"):
+        names, _, office = part.partition("=")
+        terms = [t.strip() for t in names.split("|") if t.strip()]
+        if terms:
+            yield terms[0], terms[1:], office.strip()
+
+
+def yolo_representatives() -> Dict[str, str]:
+    return {name: office for name, _, office in _rep_entries()}
+
+
+def _reps_pattern() -> Optional[re.Pattern]:
+    entries = list(_rep_entries())
+    if not entries:
+        return None
+    terms = set()
+    for name, extra, _ in entries:
+        terms.add(re.escape(name))
+        terms.update(re.escape(t) for t in extra)
+        surname = name.split()[-1]
+        terms.add(rf"(?:Rep\.?|Congress(?:man|woman|member)|Assemblymember|Senator)\s+{re.escape(surname)}")
+        if "-" in surname:  # hyphenated surnames are distinctive on their own
+            terms.add(re.escape(surname))
+    return re.compile(r"\b(" + "|".join(sorted(terms)) + r")\b")
+
+
+def triage_prompt() -> str:
+    reps = yolo_representatives()
+    listed = " (" + ", ".join(f"{o} {n}" if o else n for n, o in reps.items()) + ")" if reps else ""
+    return TRIAGE_PROMPT.replace("{reps}", listed)
 
 
 def has_yolo_angle(title: str, text: str, strip: Sequence[str] = ()) -> bool:
     """Cheap test for wider-area stories: a Yolo place/body or one of Yolo's representatives is named."""
-    return locality_score(title, text, strip) >= 2 or bool(_REPS.search(f"{title or ''}\n{text or ''}"))
+    reps = _reps_pattern()
+    return (locality_score(title, text, strip) >= 2
+            or bool(reps and reps.search(f"{title or ''}\n{text or ''}")))
 
 
 def locality_score(title: str, text: str, strip: Sequence[str] = ()) -> int:

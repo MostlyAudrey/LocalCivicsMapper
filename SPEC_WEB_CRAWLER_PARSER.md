@@ -520,7 +520,7 @@ Implement the following `typer` commands with `rich` table output:
 
 ## 11. End-to-End Verification (`tests/test_pipeline_e2e.py`)
 
-Create a self-contained test fixture representing the article `https://news.example/2026/11/davis-mayor-apologizes-observer-stop/` containing references, actions, and statements for:
+Create a self-contained, synthetic test fixture (made-up people and quotes; a police stop of an ICE observer) containing references, actions, and statements for:
 `Helen Marsh`, `Gloria Ravel`, `Robin Hale`, `Valley Watch Network`, `ICE`, `Officer Pemberton`, `Davis Police Department`, `Owen Brackett`, and `Lena Okafor`.
 
 The test must:

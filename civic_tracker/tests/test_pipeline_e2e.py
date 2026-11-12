@@ -32,7 +32,7 @@ def test_qwen3_formatting_and_mrl():
 
 def test_coref_annotation():
     text = "Gloria Ravel spoke. She apologized."
-    out = annotate_coreferences(text, [[(0, 14), (22, 25)]])
+    out = annotate_coreferences(text, [[(0, 12), (20, 23)]])
     assert out == "Gloria Ravel spoke. She [Gloria Ravel] apologized."
 
 
@@ -108,8 +108,8 @@ async def test_full_pipeline_dedup_and_coalitions(pool, run_live):
     orch = Orchestrator(pool, stage1=stage1, extractor=extractor, encoder=encoder, concurrency=2)
 
     async with pool.connection() as conn:
-        src = await repo.add_source(conn, "Davis Vanguard", "https://davisvanguard.org",
-                                    "https://davisvanguard.org/sitemap_index.xml")
+        src = await repo.add_source(conn, "Test News", "https://news.example",
+                                    "https://news.example/sitemap_index.xml")
         a1 = await _insert(conn, src["id"], fx.ARTICLE_1_URL, fx.ARTICLE_1_TITLE, fx.ARTICLE_1_PUBLISHED, fx.ARTICLE_1_TEXT)
 
     stats = await orch.run()

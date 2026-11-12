@@ -100,7 +100,8 @@ class FakeEncoder:
 
 
 _FEMALE = {"Robin Hale": "Robin Hale", "Hale": "Robin Hale", "Helen Marsh": "Helen Marsh", "Gloria Ravel": "Gloria Ravel"}
-_MALE = {"Owen Brackett": "Owen Brackett", "Brackett": "Owen Brackett", "Officer Pemberton": "Officer Pemberton", "Pemberton": "Officer Pemberton"}
+_MALE = {"Owen Brackett": "Owen Brackett", "Brackett": "Owen Brackett", "Officer Pemberton": "Officer Pemberton",
+         "Pemberton": "Officer Pemberton"}
 
 
 def fake_coref(text: str):
@@ -124,9 +125,9 @@ def fake_coref(text: str):
 
 FAKE_NER_TERMS = {
     "Helen Marsh": "public official", "Gloria Ravel": "public official", "Robin Hale": "person",
-    "Valley Watch Network": "activist organization", "ICE": "government agency", "Officer Pemberton": "law enforcement officer",
-    "Davis Police Department": "government agency", "Owen Brackett": "law enforcement officer",
-    "Lena Okafor": "public official",
+    "Valley Watch Network": "activist organization", "ICE": "government agency",
+    "Officer Pemberton": "law enforcement officer", "Davis Police Department": "government agency",
+    "Owen Brackett": "public official", "Lena Okafor": "public official",
 }
 
 

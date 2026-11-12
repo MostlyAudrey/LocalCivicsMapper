@@ -77,7 +77,7 @@ def test_collapse_respects_the_articles_roles():
          "pat ferrell": EntityProfile("Pat Ferrell", "PERSON"),
          "pat": EntityProfile("Pat", "PERSON")}
     # the mayor is not the clerk who wrote the report; "Pat" is the article's only Pat
-    assert collapse_surnames(p) == {"jeff": "pat ferrell"}
+    assert collapse_surnames(p) == {"pat": "pat ferrell"}
 
 
 async def _entity(conn, enc, name, etype="PERSON"):

@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     # BURST_LLM_API_KEY; capped per UTC day (then it falls back to one local retry).
     TRUNCATION_FALLBACK_TO_API: bool = True
     TRUNCATION_FALLBACK_DAILY_USD: float = 2.0
+    # Yolo's representatives in Congress / the Legislature, for triage of national and state stories:
+    # "Full Name=Office; Full Name=Office". Set in .env (names are data, not code); update after elections.
+    YOLO_REPRESENTATIVES: str = ""
 
     # Worker daemon (civic-tracker worker)
     WORKER_SLOTS: int = 4                 # parallel article slots (concurrent LLM requests)

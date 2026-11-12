@@ -7,7 +7,7 @@ Related: `SPEC_WEB_CRAWLER_PARSER.md`, `SPEC_WEB_UI.md`, `CLAUDE.md`, migrations
 Let an admin feed the wiki material that is not a regularly crawled news article: a candidate's campaign
 website, a candidate questionnaire, a council agenda / minutes / staff report (PDF), an agency press release,
 a voter guide. The main motivation is balance: today an entity's positions can come almost entirely from
-third-party commentary (e.g. Jane Roe: 37 of 38 stance rows came from Davisite opinion pieces). Adding the
+third-party commentary (e.g. one congressional candidate: 37 of 38 stance rows came from opinion pieces). Adding the
 entity's *own* stated positions gives the weighting system (v1.5) a direct, attributable counterweight.
 
 ## 1. Admin -> "Add document" page (Flask, `api/admin.py`, `templates/admin/documents.html`)
@@ -35,7 +35,7 @@ entity's *own* stated positions gives the weighting system (v1.5) a direct, attr
     `evidence = claimed`, `claimed_by = X`.
   - Official records are `reported`.
 - Platform positions are not events: new event type **`CAMPAIGN_PLATFORM`**, one event per issue, e.g.
-  "Jane Roe 2026 platform: foreign policy". Lets the wiki answer "where does X *say* they stand?".
+  "<candidate> 2026 platform: foreign policy". Lets the wiki answer "where does X *say* they stand?".
 
 ## 3. Weighting (reuses v1.5 `VW_Entity_Event_Weighted`)
 - "Manual documents" source reliability 1.0.
