@@ -43,7 +43,7 @@ _MEMBER_LABELS = ("Commissioner", "Board Member", "Trustee", "Member", "Committe
 def _clean_role(role: str, org: Optional[str]) -> str:
     r = (role or "").strip()
     r = r.split(",")[0]                       # "Commissioner, Winters Climate Action Commission"
-    r = re.sub(r"\s+(of|for|on|with)\s+.*$", "", r, flags=re.I)   # "City Clerk of Woodland"
+    r = re.sub(r"\s+(of|for|on|with)\s+(?!staff\b).*$", "", r, flags=re.I)   # "City Clerk of Woodland"; keeps "Chief of Staff"
     if org:
         r = re.sub(re.escape(org), "", r, flags=re.I)
     return " ".join(r.split())

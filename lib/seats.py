@@ -17,7 +17,7 @@ _SEAT = re.compile(rf"\b(?P<kind>{_KIND})\s+(?:no\.?\s*|#\s*)?(?P<num>{_NUM})\b"
 _SEAT_ORD = re.compile(rf"\b(?P<num>{_ORDINAL})\s+(?P<kind>district|ward)\b", re.I)
 _SEAT_TAIL = re.compile(r"^\)?(?:\s+(?:office|seat))?$", re.I)   # what may follow the seat at the end of a name
 # a body that has seats; "<this> District 3" is a seat of it, while "Reclamation District 900" is an agency
-_SEATED_BODY = re.compile(r"\b(council|board|supervisors|trustees|commission|assembly|senate|house)\b", re.I)
+_SEATED_BODY = re.compile(r"\b(council|board|supervisors|trustees|commission|assembly|senate|house|congressional)\b", re.I)
 # office title -> the generic body it sits on (the resolver places it in the article's city/county)
 _OFFICE_BODY = [
     (re.compile(r"^(?:the\s+)?(?:county\s+)?supervisors?$", re.I), "Board of Supervisors"),
