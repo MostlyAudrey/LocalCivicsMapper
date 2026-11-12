@@ -66,6 +66,7 @@ def db_init_web() -> None:
         await init_schema(pool, "schema_web_v18.sql")
         await init_schema(pool, "schema_web_v19.sql")
         await init_schema(pool, "schema_web_v20.sql")
+        await init_schema(pool, "schema_web_v21.sql")
 
     _run(go())
     console.print("[green]Web schema applied.[/green]")

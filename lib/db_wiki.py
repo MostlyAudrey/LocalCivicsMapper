@@ -193,11 +193,30 @@ def get_entity(entity_id: int) -> Optional[Row]:
     )
 
 
+_SEATS_READY = False
+
+
+def seats_ready() -> bool:
+    """True once migration v2.1 (TB_Entity_Affiliation.seat) is applied."""
+    global _SEATS_READY
+    if not _SEATS_READY:
+        row = db.fetch_one(
+            """SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                              WHERE table_name = 'tb_entity_affiliation' AND column_name = 'seat') AS ok""")
+        _SEATS_READY = bool(row and row["ok"])
+    return _SEATS_READY
+
+
+def _seat_cols() -> str:
+    """The seat columns for a query on TB_Entity_Affiliation a (constants, not user input)."""
+    return "a.seat, a.seat_verified_at" if seats_ready() else "NULL::text AS seat, NULL::timestamptz AS seat_verified_at"
+
+
 def entity_affiliations(entity_id: int) -> List[Row]:
     return db.fetch_all(
-        """
+        f"""
         SELECT a.role_title, a.organization_id, o.canonical_name AS organization,
-               a.first_seen_date, a.last_seen_date
+               a.first_seen_date, a.last_seen_date, {_seat_cols()}
         FROM TB_Entity_Affiliation a LEFT JOIN TB_Entity o ON o.id = a.organization_id
         WHERE a.entity_id = %s
         ORDER BY a.last_seen_date DESC, a.first_seen_date DESC
@@ -218,8 +237,9 @@ def entity_members(entity_id: int) -> Optional[Row]:
     """People in this body: {as_of, from_minutes, current, former, staff} (see affiliations.group_members).
     The current roster comes from the body's latest roll calls in official minutes when there are any."""
     rows = db.fetch_all(
-        """
-        SELECT e.id, e.canonical_name, a.role_title, a.last_seen_date, o.canonical_name AS organization
+        f"""
+        SELECT e.id, e.canonical_name, a.role_title, a.first_seen_date, a.last_seen_date,
+               o.canonical_name AS organization, {_seat_cols()}
         FROM TB_Entity_Affiliation a JOIN TB_Entity e ON e.id = a.entity_id
         JOIN TB_Entity o ON o.id = a.organization_id
         WHERE a.organization_id = %s AND e.entity_type = 'PERSON'

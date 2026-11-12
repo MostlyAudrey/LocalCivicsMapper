@@ -86,6 +86,50 @@ def test_group_members_without_minutes_uses_recency():
     assert [p["canonical_name"] for p in g["staff"]] == ["Liz Liaison"] and not g["from_minutes"]
 
 
+BOARD = "Marlow County Board of Supervisors"
+
+
+def seat_row(pid, name, role, first, last, seat=None, verified=False):
+    return {"id": pid, "canonical_name": name, "role_title": role, "organization": BOARD,
+            "first_seen_date": date(*first), "last_seen_date": date(*last), "seat": seat,
+            "seat_verified_at": date(2026, 1, 1) if verified else None}
+
+
+def test_elect_is_not_the_seat_yet():
+    assert role_family("Supervisor-Elect", BOARD) == ("supervisor-elect", "Supervisor-Elect")
+    assert role_family("Mayor-elect", None)[0] == "mayor-elect"
+    assert role_family("Elections Supervisor", None)[0] == "supervisor"   # "elections" is not "elect"
+
+
+def test_incoming_member_and_handover_of_a_seat():
+    outgoing = seat_row(1, "Nadia Quist", "Supervisor", (2024, 1, 1), (2026, 10, 1), "District 3")
+    elect = seat_row(2, "Tobias Wren", "Supervisor-Elect", (2026, 11, 6), (2026, 11, 6), "District 3")
+    other = seat_row(3, "Odile Farrow", "Supervisor", (2023, 1, 1), (2026, 9, 1), "District 2")
+    g = group_members([outgoing, elect, other])
+    assert [p["canonical_name"] for p in g["current"]] == ["Nadia Quist", "Odile Farrow"]
+    assert [(p["canonical_name"], p["role_title"]) for p in g["incoming"]] == [
+        ("Tobias Wren", "Supervisor-Elect, District 3")]
+    # sworn in: the same seat now has a newer holder, even though the old one was mentioned again afterwards
+    seated = seat_row(2, "Tobias Wren", "Supervisor", (2027, 1, 5), (2027, 1, 5))
+    late_mention = dict(outgoing, last_seen_date=date(2027, 1, 20))
+    g = group_members([late_mention, elect, seated, other])
+    assert [(p["canonical_name"], p["role_title"]) for p in g["current"]] == [
+        ("Odile Farrow", "Supervisor, District 2"), ("Tobias Wren", "Supervisor, District 3")]
+    assert [p["canonical_name"] for p in g["former"]] == ["Nadia Quist"] and g["incoming"] == []
+
+
+def test_person_page_shows_the_seat_once_per_role():
+    rows = [dict(row("Supervisor-Elect", BOARD, 9, (2026, 11, 6)), seat="District 3"),
+            row("Supervisor", BOARD, 9, (2027, 1, 5)), row("Chair", BOARD, 9, (2027, 2, 1))]
+    roles = {r["label"]: r["seat"] for r in condense(rows)[0]["roles"]}
+    assert roles == {"Supervisor": "District 3", "Supervisor-Elect": "District 3", "Chair": None}
+    # a verified seat wins over what a later article said
+    rows = [dict(row("Supervisor", BOARD, 9, (2026, 1, 1)), seat="District 3", seat_verified_at=date(2026, 2, 1)),
+            dict(row("County Supervisor", BOARD, 9, (2026, 6, 1)), seat="District 4")]
+    (role,) = condense(rows)[0]["roles"]
+    assert (role["seat"], role["seat_verified"]) == ("District 3", True)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

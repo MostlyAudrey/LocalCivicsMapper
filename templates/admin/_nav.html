@@ -1,5 +1,5 @@
 {% set tabs = [('admin.dashboard', 'Control center'), ('admin.metrics_page', 'Performance'), ('admin.sources', 'Sources & backfill'),
-                ('admin.failures', 'Failures'), ('admin.merge', 'Merge entities'), ('admin.settings_page', 'Settings')] %}
+                ('admin.failures', 'Failures'), ('admin.merge', 'Merge entities'), ('admin.seats_page', 'Seats'), ('admin.settings_page', 'Settings')] %}
 <div class="mb-6 flex flex-wrap gap-1 border-b border-slate-200">
   {% for ep, label in tabs %}
     <a href="{{ url_for(ep) }}"

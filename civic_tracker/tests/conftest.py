@@ -66,6 +66,7 @@ async def pool():
         await conn.execute(load_schema_sql("schema_web_v18.sql"))
         await conn.execute(load_schema_sql("schema_web_v19.sql"))
         await conn.execute(load_schema_sql("schema_web_v20.sql"))
+        await conn.execute(load_schema_sql("schema_web_v21.sql"))
     try:
         yield p
     finally:

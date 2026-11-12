@@ -195,7 +195,8 @@ def failures():
 def merge():
     if request.method == "POST":
         try:
-            res = db_admin.merge_entities(int(request.form["source_id"]), int(request.form["target_id"]))
+            res = db_admin.merge_entities(int(request.form["source_id"]), int(request.form["target_id"]),
+                                          assign_seat=request.form.get("assign_seat") == "1")
             flash(f"Merged “{res['source_name']}” into “{res['target_name']}” "
                   f"({res['moved_event_rows']} event rows moved). Bio will be regenerated.", "ok")
             return redirect(url_for("wiki.entity", entity_id=res["target_id"]))
@@ -204,6 +205,28 @@ def merge():
         return redirect(url_for("admin.merge"))
     return render_template("admin/merge.html", candidates=db_admin.possible_duplicates(),
                            dismiss_ready=db_admin.not_duplicate_table_ready())
+
+
+@admin_bp.route("/seats", methods=["GET", "POST"])
+@admin_required
+def seats_page():
+    """Check who holds which numbered seat (v2.1). The admin looks the person up on an outside source in their
+    own browser and records the result here; the site itself never fetches those pages."""
+    q = request.values.get("q", "")
+    if request.method == "POST":
+        try:
+            person_id, org_id = int(request.form["person_id"]), int(request.form["organization_id"])
+            if request.form.get("action") == "unverify":
+                db_admin.unverify_seat(person_id, org_id)
+                flash("Verification removed.", "ok")
+            else:
+                db_admin.verify_seat(person_id, org_id, request.form.get("seat", ""), request.form.get("source", ""))
+                flash("Seat verified.", "ok")
+        except (ValueError, KeyError) as exc:
+            flash(f"Not saved: {exc}", "error")
+        return redirect(url_for("admin.seats_page", q=q) if q else url_for("admin.seats_page"))
+    return render_template("admin/seats.html", ready=db_admin.seats_ready(), q=q,
+                           holders=db_admin.seat_holders(q), seat_like=db_admin.seat_like_entities())
 
 
 @admin_bp.route("/api/entities/<int:entity_id>/aliases", methods=["POST"])

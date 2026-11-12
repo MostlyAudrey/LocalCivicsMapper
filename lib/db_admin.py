@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
+from lib import affiliations, seats
 from lib.db_conn import Db_conn
 
 db = Db_conn()
@@ -365,9 +366,13 @@ def set_dispute(entity_event_id: int, disputed: bool, note: Optional[str] = None
     return row
 
 
-def merge_entities(source_id: int, target_id: int) -> Row:
+def merge_entities(source_id: int, target_id: int, assign_seat: bool = True) -> Row:
     """Merge source into target (SPEC_WEB_UI §7.4). Target keeps its canonical name; the source's name and
-    aliases become target aliases. Conflicting rows are merged (quotes unioned, date ranges widened)."""
+    aliases become target aliases. Conflicting rows are merged (quotes unioned, date ranges widened).
+
+    When the source is a seat saved as a body ("<body> District 3"), its people get that seat on the target
+    (unless `assign_seat` is False - use that when the seat entity collected people from other seats too), and
+    its seat-like names are not kept as aliases."""
     if source_id == target_id:
         raise ValueError("source and target are the same entity")
     with db.transaction() as conn:
@@ -377,17 +382,31 @@ def merge_entities(source_id: int, target_id: int) -> Row:
             if not src or not tgt:
                 raise ValueError("entity not found")
 
-            # aliases: target ∪ source name ∪ source aliases, minus target's own name (case-insensitive)
+            # aliases: target ∪ source name ∪ source aliases, minus target's own name (case-insensitive).
+            # A seat or office title ("... District 3", "County Supervisor") is not a name of the body: as an
+            # alias it would pull every other body's District 3 here, so it is left out.
+            is_seat = seats.looks_like_seat_entity(src["canonical_name"])
+            seat_like = [n for n in [src["canonical_name"], *(src["aliases"] or [])]
+                         if seats.looks_like_seat_entity(n) or (is_seat and seats.normalize_seat(n))]
+            src_aliases = [n for n in (src["aliases"] or []) if n not in seat_like]
+            src_names = [] if src["canonical_name"] in seat_like else [src["canonical_name"]]
+            has_seat = conn.execute(
+                """SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tb_entity_affiliation'
+                                  AND column_name = 'seat') AS ok""").fetchone()["ok"]
+            src_seat = seats.normalize_seat(src["canonical_name"]) if is_seat and assign_seat else None
+            if has_seat and src_seat:  # "<body> District 3" merged into the body: its people hold that seat
+                conn.execute("UPDATE TB_Entity_Affiliation SET seat = %s WHERE organization_id = %s AND seat IS NULL",
+                             (src_seat, source_id))
             conn.execute(
                 """
                 UPDATE TB_Entity t SET aliases = ARRAY(
                     SELECT DISTINCT ON (LOWER(x)) x
-                    FROM unnest(t.aliases || ARRAY[%(sname)s]::TEXT[] || %(saliases)s::TEXT[]) x
+                    FROM unnest(t.aliases || %(snames)s::TEXT[] || %(saliases)s::TEXT[]) x
                     WHERE LOWER(x) <> LOWER(t.canonical_name)
                 ), bio_is_dirty = TRUE
                 WHERE t.id = %(tid)s
                 """,
-                {"sname": src["canonical_name"], "saliases": src["aliases"] or [], "tid": target_id},
+                {"snames": src_names, "saliases": src_aliases, "tid": target_id},
             )
 
             # entity-event rows: merge into an existing target row for the same (event, article), else re-point
@@ -429,6 +448,19 @@ def merge_entities(source_id: int, target_id: int) -> Row:
             for col, other in (("entity_id", "organization_id"), ("organization_id", "entity_id")):
                 ids = {"sid": source_id, "tid": target_id}
                 c, o = sql.Identifier(col), sql.Identifier(other)
+                if has_seat:  # the surviving row keeps a seat either row knew; a verified one wins
+                    conn.execute(sql.SQL(
+                        """
+                        UPDATE TB_Entity_Affiliation t
+                        SET seat = CASE WHEN t.seat_verified_at IS NOT NULL THEN t.seat
+                                        WHEN s.seat_verified_at IS NOT NULL THEN s.seat
+                                        ELSE COALESCE(t.seat, s.seat) END,
+                            seat_verified_at = COALESCE(t.seat_verified_at, s.seat_verified_at),
+                            seat_verified_source = COALESCE(t.seat_verified_source, s.seat_verified_source)
+                        FROM TB_Entity_Affiliation s
+                        WHERE s.{c} = %(sid)s AND t.{c} = %(tid)s
+                          AND t.{o} IS NOT DISTINCT FROM s.{o} AND t.role_title = s.role_title
+                        """).format(c=c, o=o), ids)
                 conn.execute(sql.SQL(
                     """
                     UPDATE TB_Entity_Affiliation t
@@ -460,3 +492,96 @@ def merge_entities(source_id: int, target_id: int) -> Row:
             conn.execute("DELETE FROM TB_Entity WHERE id = %s", (source_id,))
     return {"target_id": target_id, "source_name": src["canonical_name"], "target_name": tgt["canonical_name"],
             "moved_event_rows": moved_events}
+
+
+# ---------------------------------------------------------------- seats (v2.1)
+SEAT_ROLE_SQL = r"(supervisor|council|trustee|mayor|board\s+member|director)"   # roles elected to a seat
+SEAT_HOLDER_YEARS = 2
+
+
+def seats_ready() -> bool:
+    row = db.fetch_one(
+        """SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_name = 'tb_entity_affiliation' AND column_name = 'seat') AS ok""")
+    return bool(row and row["ok"])
+
+
+def seat_holders(q: str = "", limit: int = 300) -> List[Row]:
+    """One line per (person, body) for people recently recorded in an elected seat of a government body:
+    their roles, the seat on file and whether an admin verified it. Unverified first, grouped by body."""
+    if not seats_ready():
+        return []
+    rows = db.fetch_all(
+        """
+        SELECT p.id AS person_id, p.canonical_name AS person, o.id AS organization_id, o.canonical_name AS body,
+               array_agg(DISTINCT a.role_title) AS roles, max(a.last_seen_date) AS last_seen,
+               (array_agg(a.seat ORDER BY (a.seat_verified_at IS NOT NULL) DESC, a.last_seen_date DESC)
+                    FILTER (WHERE a.seat IS NOT NULL))[1] AS seat,
+               max(a.seat_verified_at) AS verified_at, max(a.seat_verified_source) AS verified_source
+        FROM TB_Entity_Affiliation a
+        JOIN TB_Entity p ON p.id = a.entity_id AND p.entity_type = 'PERSON'
+        JOIN TB_Entity o ON o.id = a.organization_id AND o.entity_type = 'GOVERNMENT_BODY'
+        WHERE a.role_title ~* %(roles)s AND a.role_title !~* '(candidate|former)'
+          AND (%(q)s = '' OR o.canonical_name ILIKE %(like)s OR p.canonical_name ILIKE %(like)s)
+        GROUP BY p.id, p.canonical_name, o.id, o.canonical_name
+        HAVING max(a.last_seen_date) > NOW() - make_interval(years => %(years)s)
+        ORDER BY (max(a.seat_verified_at) IS NOT NULL), o.canonical_name, p.canonical_name
+        LIMIT %(limit)s
+        """,
+        {"roles": SEAT_ROLE_SQL, "q": q.strip(), "like": f"%{q.strip()}%", "years": SEAT_HOLDER_YEARS,
+         "limit": limit},
+    )
+    for r in rows:
+        labels = []
+        for t in r["roles"]:
+            label = affiliations.role_family(t, r["body"])[1]
+            if label not in labels:
+                labels.append(label)
+        r["role"] = ", ".join(labels)
+    return rows
+
+
+def verify_seat(person_id: int, organization_id: int, seat: str, source: str) -> int:
+    """Record an admin's check of someone's seat on a body. `seat` is normalized ("district three" ->
+    "District 3"); empty means "no numbered seat" (at-large). The seat is set on all the person's rows on that
+    body and is never overwritten by article extraction afterwards. Returns the number of rows updated."""
+    if not seats_ready():
+        raise ValueError("apply sql/unapplied/v2.1_AffiliationSeat.sql first")
+    seat = " ".join((seat or "").split())
+    norm = seats.normalize_seat(seat) if seat else None
+    if seat and not norm:
+        raise ValueError(f"“{seat}” is not a seat like “District 3”, “Ward 2” or “Area 4”")
+    source = " ".join((source or "").split())[:300]
+    if not source:
+        raise ValueError("say where you checked it (a link or a short note)")
+    with db.transaction() as conn:
+        n = conn.execute(
+            """UPDATE TB_Entity_Affiliation SET seat = %s, seat_verified_at = NOW(), seat_verified_source = %s
+               WHERE entity_id = %s AND organization_id = %s""",
+            (norm, source, person_id, organization_id)).rowcount
+        conn.execute("UPDATE TB_Entity SET bio_is_dirty = TRUE WHERE id IN (%s, %s)", (person_id, organization_id))
+    return n
+
+
+def unverify_seat(person_id: int, organization_id: int) -> int:
+    """Undo a verification (the seat value stays; articles may update it again)."""
+    return db.execute(
+        """UPDATE TB_Entity_Affiliation SET seat_verified_at = NULL, seat_verified_source = NULL
+           WHERE entity_id = %s AND organization_id = %s""", (person_id, organization_id))
+
+
+def seat_like_entities(limit: int = 200) -> List[Row]:
+    """Audit: bodies/organisations whose NAME is a seat or an office title ("... District 3", "County
+    Supervisor"). They should be merged into the real body; the merge moves the seat onto the affiliations."""
+    rows = db.fetch_all(
+        r"""
+        SELECT e.id, e.canonical_name, e.entity_type, e.created_at,
+               (SELECT count(*) FROM TB_Entity_Affiliation a WHERE a.organization_id = e.id) AS n_affs,
+               (SELECT count(*) FROM TB_Entity_Event ee WHERE ee.entity_id = e.id) AS n_events
+        FROM TB_Entity e
+        WHERE e.entity_type IN ('GOVERNMENT_BODY', 'ORGANIZATION')
+          AND (e.canonical_name ~* '(district|ward|area|seat|division)\s+(no\.?\s*|#\s*)?([0-9]+|[a-h]|one|two|three|four|five|six|seven)\M'
+               OR e.canonical_name ~* '^(the\s+)?((county|city)\s+)?(supervisor|council\s*(member|man|woman|person))s?$')
+        ORDER BY e.created_at DESC
+        """)
+    return [r for r in rows if seats.looks_like_seat_entity(r["canonical_name"])][:limit]

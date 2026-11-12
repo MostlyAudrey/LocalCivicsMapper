@@ -27,6 +27,11 @@
       </div>
       {% endif %}
       {% endfor %}
+      <label class="flex items-start gap-2 text-xs text-slate-600">
+        <input type="checkbox" name="assign_seat" value="1" checked class="mt-0.5">
+        <span>If the source is a seat saved as a body (“… District 3”), give its people that seat on the target.
+          Untick when the source also collected people from other seats.</span>
+      </label>
       <button class="rounded-lg bg-rose-600 px-3 py-1.5 text-white hover:bg-rose-700" id="merge-submit" disabled>Merge source into target</button>
     </form>
   </section>

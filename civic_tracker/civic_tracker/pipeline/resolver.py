@@ -11,7 +11,7 @@ from typing import Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 from psycopg import AsyncConnection
 
 from civic_tracker.db import repositories as repo
-from civic_tracker.pipeline import measures, sides
+from civic_tracker.pipeline import measures, seats, sides
 from civic_tracker.pipeline.encoder import Encoder
 from civic_tracker.pipeline.jurisdiction import (YOLO_CITIES, alias_ok, compatible_names, expand_acronym,
                                                  is_acronym, is_generic_body, places_in, qualify_generic)
@@ -528,6 +528,7 @@ async def resolve_article(
     `text` (the article) lets acronyms the article defines be expanded ("Community Development Department (CDD)")."""
     seen_at = _as_aware(published_at)
     motions = 0
+    await seats.normalize_result(conn, result)   # "<body> District 3" -> the body + a seat on the affiliation
     profiles = collect_profiles(result)
     acronyms = await expand_acronyms(conn, profiles, text)
     profiles, renamed, unresolved = qualify_profiles(profiles, jurisdiction)
@@ -566,6 +567,8 @@ async def resolve_article(
             role_title=aff.role_title.strip(),
             seen_at=seen_at,
             source_article_id=article_id,
+            seat=aff.seat if org_id is not None and await seats.column_ready(conn) else None,
+            with_seat=await seats.column_ready(conn),
         )
 
     # Events

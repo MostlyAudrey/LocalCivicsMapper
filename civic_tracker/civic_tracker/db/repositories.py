@@ -406,21 +406,31 @@ async def upsert_affiliation(
     role_title: str,
     seen_at: datetime,
     source_article_id: Optional[int],
+    seat: Optional[str] = None,
+    with_seat: bool = False,
 ) -> None:
+    """`with_seat` (migration v2.1 applied) also stores the seat on the body ("District 3"). An article never
+    replaces a seat an admin verified, and never blanks a known one."""
+    seat_cols = ", seat" if with_seat else ""
+    seat_vals = ", %(seat)s" if with_seat else ""
+    seat_set = """,
+                seat = CASE WHEN TB_Entity_Affiliation.seat_verified_at IS NOT NULL THEN TB_Entity_Affiliation.seat
+                            ELSE COALESCE(EXCLUDED.seat, TB_Entity_Affiliation.seat) END""" if with_seat else ""
     await conn.execute(
-        """
+        f"""
         INSERT INTO TB_Entity_Affiliation
-            (entity_id, organization_id, role_title, first_seen_date, last_seen_date, source_article_id)
-        VALUES (%(eid)s, %(oid)s, %(role)s, %(seen)s, %(seen)s, %(aid)s)
+            (entity_id, organization_id, role_title, first_seen_date, last_seen_date, source_article_id{seat_cols})
+        VALUES (%(eid)s, %(oid)s, %(role)s, %(seen)s, %(seen)s, %(aid)s{seat_vals})
         ON CONFLICT (entity_id, organization_id, role_title) DO UPDATE
             SET first_seen_date = LEAST(TB_Entity_Affiliation.first_seen_date, EXCLUDED.first_seen_date),
                 last_seen_date  = GREATEST(TB_Entity_Affiliation.last_seen_date, EXCLUDED.last_seen_date),
                 source_article_id = CASE
                     WHEN EXCLUDED.first_seen_date < TB_Entity_Affiliation.first_seen_date
                     THEN EXCLUDED.source_article_id
-                    ELSE TB_Entity_Affiliation.source_article_id END
+                    ELSE TB_Entity_Affiliation.source_article_id END{seat_set}
         """,
-        {"eid": entity_id, "oid": organization_id, "role": role_title, "seen": seen_at, "aid": source_article_id},
+        {"eid": entity_id, "oid": organization_id, "role": role_title, "seen": seen_at, "aid": source_article_id,
+         "seat": seat},
     )
     await mark_bio_dirty(conn, entity_id)
 

@@ -32,6 +32,7 @@ class ExtractedAffiliation(BaseModel):
     person_name: str = Field(max_length=100, description="Full canonical name of the person without title prefix")
     organization_name: Optional[str] = Field(default=None, max_length=120, description="Canonical name of the organization or body")
     role_title: str = Field(max_length=60, description="Official role or title, e.g., 'Mayor', 'City Manager', 'Police Officer'")
+    seat: Optional[str] = Field(default=None, max_length=40, description="Numbered seat on the body when the article states it, e.g. 'District 3', 'Trustee Area 4'; else null")
 
 
 class ExtractedInvolvement(BaseModel):
@@ -203,6 +204,12 @@ record relationships, opinions, endorsements, past life events, or descriptions 
 "City Manager of Davis" -> role_title "City Manager", organization_name "City of Davis"; "candidate for \
 ASUCD Senate" -> role_title "Candidate", organization_name "ASUCD Senate". Emit one affiliation per \
 distinct position; skip former positions.
+- SEATS: a district, ward or trustee area is a SEAT on a body, never an organization. organization_name is the \
+whole body and the seat goes in the affiliation's "seat" field: "District 3 Supervisor Jane Roe" -> role_title \
+"Supervisor", organization_name "<County> Board of Supervisors", seat "District 3"; "candidate for Riverton City \
+Council District 2" -> role_title "Candidate", organization_name "Riverton City Council", seat "District 2". \
+Leave seat null when the article does not state it. An office title ("County Supervisor", "Council Member") is \
+never an organization_name, and a seat is never an entity_name.
 - evidence: mark how each involvement is known. Use "reported" only when the article itself reports the \
 action or statement as fact. When someone's position is described by a critic, supporter or op-ed author, use \
 "claimed" and name that person in claimed_by - do NOT turn the claim into the entity's own stance. For "claimed" \
