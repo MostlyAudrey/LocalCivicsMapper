@@ -4,7 +4,7 @@ import sys
 from datetime import date
 
 sys.path.insert(0, ".")
-from lib.affiliations import condense, condense_members, role_family  # noqa: E402
+from lib.affiliations import condense, condense_members, group_members, role_family  # noqa: E402
 
 CAC, CTE = "Winters Climate Action Commission", "Winters Climate Action Committee"
 
@@ -54,6 +54,36 @@ def test_members_one_line_per_person():
         {"id": 1, "canonical_name": "Ken Halvorsen", "role_title": "Chair", "organization": CAC,
          "last_seen_date": date(2025, 6, 1)}])
     assert len(people) == 1 and people[0]["role_title"] == "Commissioner, Chair"
+
+
+COUNCIL = "Woodland City Council"
+
+
+def mem(pid, name, role, last):
+    return {"id": pid, "canonical_name": name, "role_title": role, "organization": COUNCIL,
+            "last_seen_date": date(*last)}
+
+
+def test_group_members_uses_roll_call_roster():
+    rows = [mem(1, "Tom Penhallow", "Mayor", (2026, 10, 21)), mem(2, "Victoria Ibarrola", "Councilmember", (2024, 8, 20)),
+            mem(3, "Marissa Quill", "City Clerk", (2026, 11, 6)), mem(4, "Jesse Ondrako", "Candidate", (2026, 10, 21)),
+            mem(5, "Castell", "Councilmember", (2026, 9, 15)), mem(6, "David Castell", "Councilmember", (2026, 9, 15)),
+            mem(7, "Mayra Ruelas", "Mayor Pro Tem", (2026, 11, 6))]
+    roster = {1: {"canonical_name": "Tom Penhallow"}, 6: {"canonical_name": "David Castell"}}
+    g = group_members(rows, roster, date(2026, 9, 15))
+    assert [p["canonical_name"] for p in g["current"]] == ["David Castell", "Mayra Ruelas", "Tom Penhallow"]  # Ruelas: seen in a seat since
+    assert [p["canonical_name"] for p in g["former"]] == ["Victoria Ibarrola"]   # surname-only "Castell" hidden
+    assert [p["canonical_name"] for p in g["staff"]] == ["Marissa Quill"]        # candidate left out
+    assert g["from_minutes"] and g["as_of"] == date(2026, 11, 6)
+
+
+def test_group_members_without_minutes_uses_recency():
+    rows = [mem(1, "Ann Recent", "Commissioner", (2026, 8, 1)), mem(2, "Bob Old", "Commissioner", (2024, 1, 1)),
+            mem(3, "Cy Former", "Former Commissioner", (2026, 7, 1)), mem(4, "Liz Liaison", "Liaison", (2026, 8, 1))]
+    g = group_members(rows)
+    assert [p["canonical_name"] for p in g["current"]] == ["Ann Recent"]
+    assert {p["canonical_name"] for p in g["former"]} == {"Bob Old", "Cy Former"}
+    assert [p["canonical_name"] for p in g["staff"]] == ["Liz Liaison"] and not g["from_minutes"]
 
 
 if __name__ == "__main__":

@@ -105,3 +105,51 @@ async def test_votes_from_minutes_and_news_link(pool):
         async with conn.transaction():
             await repo.clear_article_extraction(conn, minutes_id)
         assert (await (await conn.execute("SELECT COUNT(*) AS n FROM TB_Vote_Motion")).fetchone())["n"] == 0
+
+
+def test_plural_member_titles():
+    assert M.clean_member_name("Members Hallworth") == "Hallworth"
+    assert M.clean_member_name("Councilmembers Ruelas") == "Ruelas"
+
+
+@ASYNC
+async def test_committee_minutes_vote_belongs_to_committee_and_surname_prefers_seat(pool):
+    """A committee voting to support a council ordinance is the committee's roll call; a bare surname is the
+    member holding a seat, not the clerk who shares it."""
+    enc = FakeEncoder()
+    async with pool.connection() as conn:
+        async with conn.transaction(force_rollback=True):
+            src = await repo.add_source(conn, "Committee Votes", "https://committee.example")
+            aid = await repo.insert_article(
+                conn, source_id=src["id"], url="https://committee.example/min", title="Tree Committee minutes",
+                author=None, published_at=datetime(2026, 4, 1, tzinfo=timezone.utc), full_text="z " * 300,
+                content_hash="committee-min-1")
+            affs = [ExtractedAffiliation(person_name="Opal Quimby", organization_name="Davis Tree Committee",
+                                         role_title="Commissioner"),
+                    ExtractedAffiliation(person_name="Rex Quimby", organization_name="Davis Tree Committee",
+                                         role_title="Staff Liaison"),
+                    ExtractedAffiliation(person_name="Ida Vance", organization_name="Davis Tree Committee",
+                                         role_title="Chair")]
+            vote = ExtractedVote(
+                measure=ExtractedMeasureRef(title="Street tree ordinance", measure_type="ORDINANCE",
+                                            body_name="Davis City Council"),
+                motion="Recommend the council adopt the street tree ordinance", outcome="PASSED", tally="2-0",
+                ayes=["Quimby", "Vance"])
+            res = ArticleExtractionResult(affiliations=affs, events=[ExtractedEvent(
+                canonical_title="Tree committee backs street tree ordinance", event_type="MEETING",
+                event_date_iso="2026-04-01", summary="The committee recommended the ordinance.",
+                topic_tags=["trees"], involvements=[ExtractedInvolvement(
+                    entity_name="Davis Tree Committee", entity_type="GOVERNMENT_BODY", role_in_event="Recommended",
+                    stance="SUPPORT", action_summary="Recommended adoption.")], votes=[vote])])
+            await resolve_article(conn, enc, article_id=aid, published_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
+                                  result=res, genre="official_record", jurisdiction="Davis", allow_votes=True,
+                                  minutes_body="Tree Committee")
+            m = await (await conn.execute(
+                """SELECT b.canonical_name FROM TB_Vote_Motion m JOIN TB_Entity b ON b.id = m.body_entity_id
+                   WHERE m.source_article_id = %s""", (aid,))).fetchone()
+            assert m["canonical_name"] == "Davis Tree Committee"
+            who = await (await conn.execute(
+                """SELECT e.canonical_name FROM TB_Vote v JOIN TB_Vote_Motion m ON m.id = v.motion_id
+                   JOIN TB_Entity e ON e.id = v.entity_id WHERE m.source_article_id = %s AND v.raw_name = 'Quimby'""",
+                (aid,))).fetchone()
+            assert who["canonical_name"] == "Opal Quimby"

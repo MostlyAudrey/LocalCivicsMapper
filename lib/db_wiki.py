@@ -211,19 +211,37 @@ def entity_affiliations_condensed(entity_id: int) -> List[Row]:
     return affiliations.condense(entity_affiliations(entity_id))
 
 
-def entity_members(entity_id: int, limit: int = 25) -> List[Row]:
-    """People/orgs affiliated WITH this organization (reverse affiliations), one line per person."""
+ROSTER_WINDOW_DAYS = 60   # roll calls this close to the body's latest one make up its current roster
+
+
+def entity_members(entity_id: int) -> Optional[Row]:
+    """People in this body: {as_of, from_minutes, current, former, staff} (see affiliations.group_members).
+    The current roster comes from the body's latest roll calls in official minutes when there are any."""
     rows = db.fetch_all(
         """
         SELECT e.id, e.canonical_name, a.role_title, a.last_seen_date, o.canonical_name AS organization
         FROM TB_Entity_Affiliation a JOIN TB_Entity e ON e.id = a.entity_id
         JOIN TB_Entity o ON o.id = a.organization_id
-        WHERE a.organization_id = %s
-        ORDER BY a.last_seen_date DESC LIMIT 500
+        WHERE a.organization_id = %s AND e.entity_type = 'PERSON'
+        ORDER BY a.last_seen_date DESC LIMIT 1000
         """,
         (entity_id,),
     )
-    return affiliations.condense_members(rows)[:limit]
+    roster_rows = db.fetch_all(
+        """
+        WITH last AS (SELECT max(vote_date) AS d FROM TB_Vote_Motion WHERE body_entity_id = %(b)s)
+        SELECT DISTINCT e.id, e.canonical_name, last.d AS as_of
+        FROM TB_Vote_Motion m CROSS JOIN last
+        JOIN TB_Vote v ON v.motion_id = m.id
+        JOIN TB_Entity e ON e.id = v.entity_id AND e.entity_type = 'PERSON'
+        WHERE m.body_entity_id = %(b)s AND m.vote_date > last.d - %(w)s
+        """,
+        {"b": entity_id, "w": ROSTER_WINDOW_DAYS},
+    )
+    if not rows and not roster_rows:
+        return None
+    roster = {r["id"]: r for r in roster_rows}
+    return affiliations.group_members(rows, roster, roster_rows[0]["as_of"] if roster_rows else None)
 
 
 def entity_topics(entity_id: int) -> List[Row]:

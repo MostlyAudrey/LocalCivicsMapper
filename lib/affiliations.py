@@ -172,3 +172,95 @@ def condense_members(rows: List[Row]) -> List[Row]:
         p["role_title"] = ", ".join(p["labels"])
     return sorted(people.values(), key=lambda p: (p["last_seen_date"] is None,
                                                    -(p["last_seen_date"].toordinal() if p["last_seen_date"] else 0)))
+
+
+# ---------------------------------------------------------------------------
+# Who is in a body *now*
+# ---------------------------------------------------------------------------
+# Families that hold a seat on a body (vs. staff: clerk, manager, engineer, analyst...). A liaison sits on
+# another body and reports to this one, so they're listed with staff.
+SEAT_FAMILIES = {"chair", "vice-chair", "co-chair", "mayor", "mayor-pro-tem", "councilmember", "supervisor",
+                 "trustee", "president", "vice-president", "member"}
+_NOT_YET = re.compile(r"\b(candidate|nominee|applicant|challenger|running)\b", re.I)
+_FORMER = re.compile(r"\b(former|ex|past|retired|outgoing)\b", re.I)
+_PLACEHOLDER = re.compile(r"\s\([^)]*\)$")          # "Hallworth (Woodland)": a surname we couldn't place
+RECENT_DAYS = 365          # no minutes: seat-holders seen within this long of the body's latest member record
+
+
+def _day(x):
+    return x.date() if hasattr(x, "date") and callable(x.date) else x
+
+
+def group_members(rows: List[Row], roster: Optional[Dict[int, Row]] = None, roster_date=None) -> Row:
+    """Split a body's affiliation rows into current members, former members and staff.
+
+    rows: (id, canonical_name, role_title, last_seen_date, organization) per affiliation row.
+    roster: people on the body's most recent roll calls (official minutes) {id: {canonical_name}}, as of
+    roster_date. With a roster, current = roster + anyone seen in a seat role after it; without one,
+    current = seat-holders seen within RECENT_DAYS of the body's latest seat-holder record.
+    Candidates are left out; surname-only placeholders are hidden when a full-name member shares the surname."""
+    roster = roster or {}
+    people: "OrderedDict[int, Row]" = OrderedDict()
+    for r in rows:
+        role = r.get("role_title") or ""
+        if _NOT_YET.search(role):
+            continue
+        p = people.setdefault(r["id"], {"id": r["id"], "canonical_name": r["canonical_name"], "seat": [],
+                                        "staff": [], "seat_seen": None, "last_seen_date": None, "former": False})
+        key, label = role_family(role, r.get("organization"))
+        seen = _day(r.get("last_seen_date"))
+        if seen and (p["last_seen_date"] is None or seen > p["last_seen_date"]):
+            p["last_seen_date"] = seen
+        if key in SEAT_FAMILIES:
+            if label not in p["seat"]:
+                p["seat"].append(label)
+            if seen and (p["seat_seen"] is None or seen > p["seat_seen"]):
+                p["seat_seen"] = seen
+            if _FORMER.search(role):
+                p["former"] = True
+        elif label not in p["staff"]:
+            p["staff"].append(label)
+    for pid, r in roster.items():   # voted in the minutes but never recorded with a role
+        p = people.setdefault(pid, {"id": pid, "canonical_name": r["canonical_name"], "seat": [], "staff": [],
+                                    "seat_seen": None, "last_seen_date": None, "former": False})
+        if not p["seat"]:
+            p["seat"].append(r.get("label") or "Member")
+        p["seat_seen"] = max(filter(None, [p["seat_seen"], _day(roster_date)]), default=None)
+
+    seated = [p for p in people.values() if p["seat"]]
+    if roster:
+        as_of = _day(roster_date)
+        current = [p for p in seated if p["id"] in roster
+                   or (p["seat_seen"] and as_of and p["seat_seen"] > as_of and not p["former"])]
+        latest = max([as_of] + [p["seat_seen"] for p in current if p["seat_seen"]])
+    else:
+        latest = max((p["seat_seen"] for p in seated if p["seat_seen"]), default=None)
+        current = [p for p in seated if latest and p["seat_seen"] and not p["former"]
+                   and (latest - p["seat_seen"]).days <= RECENT_DAYS]
+    cur_ids = {p["id"] for p in current}
+
+    # hide "Castell" / "Hallworth (Woodland)" when "David Castell" is listed
+    def surname(p):
+        return _PLACEHOLDER.sub("", p["canonical_name"]).split()[-1].lower()
+    full = {surname(p) for p in people.values() if len(p["canonical_name"].split()) > 1
+            and not _PLACEHOLDER.search(p["canonical_name"])}
+
+    def weak(p):
+        return (len(p["canonical_name"].split()) == 1 or _PLACEHOLDER.search(p["canonical_name"])) and surname(p) in full
+
+    def line(p, labels):
+        return {"id": p["id"], "canonical_name": p["canonical_name"], "role_title": ", ".join(labels),
+                "last_seen_date": p["seat_seen"] or p["last_seen_date"]}
+
+    def recent_first(ps):
+        return sorted(ps, key=lambda p: (p["last_seen_date"] is None,
+                                         -(p["last_seen_date"].toordinal() if p["last_seen_date"] else 0),
+                                         p["canonical_name"]))
+    return {
+        "as_of": latest,
+        "from_minutes": bool(roster),
+        "current": sorted((line(p, p["seat"]) for p in current if not weak(p)), key=lambda p: p["canonical_name"]),
+        "former": recent_first(line(p, p["seat"]) for p in seated if p["id"] not in cur_ids and not weak(p)),
+        "staff": recent_first(line(p, p["staff"]) for p in people.values()
+                              if p["staff"] and not p["seat"] and not weak(p)),
+    }

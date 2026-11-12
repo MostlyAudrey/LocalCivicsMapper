@@ -76,7 +76,7 @@ _NUM_WORDS = re.compile(r"\b(?:no\.?|number|#)\s*", re.I)
 _MEMBER_TITLE = re.compile(  # longest forms first ("Mayor Pro Tem" before "Mayor")
     r"^(?:mayor\s+pro\s+tem(?:pore)?|vice\s+mayor|vice\s+chair(?:person)?|"
     r"(?:(?:vice|deputy)\s+)?(?:mayor|chair(?:person|woman|man)?|council\s*member|councilmember|councilman|"
-    r"councilwoman|supervisor|commissioner|director|trustee|board\s*member|member|president))\.?\s+", re.I)
+    r"councilwoman|supervisor|commissioner|director|trustee|board\s*member|member|president)s?)\.?\s+", re.I)
 
 
 _READY: Optional[bool] = None
@@ -209,15 +209,52 @@ async def link_measure_event(conn: AsyncConnection, measure_id: int, event_id: i
         (measure_id, event_id, how))
 
 
+CONTEXT_YEARS = 4  # same window as resolver.CONTEXT_YEARS (resolver imports this module, so not shared)
+# Roles that hold a seat (and so vote); a City Clerk or staff contact affiliated with the body does not.
+SEAT_ROLE_RE = r"council|mayor|supervisor|trustee|commissioner|chair|member|president|pro\s+tem"
+
+
+async def _body_member_by_surname(conn: AsyncConnection, surname: str, body_id: int,
+                                  when: Optional[date]) -> Optional[int]:
+    """The body's one full-name member with this surname, seen in the body within CONTEXT_YEARS of `when`
+    (placeholders like "Hallworth (Woodland)" never count). A seat-role affiliation is the evidence; the body's
+    earlier roll calls are only a fallback (an earlier mis-match must not outvote the record)."""
+    person = """SELECT DISTINCT e.id FROM TB_Entity e
+                WHERE e.entity_type = 'PERSON' AND e.canonical_name LIKE '%% %%' AND e.canonical_name !~ '\\)$'
+                  AND lower(regexp_replace(e.canonical_name, '^.*\\s', '')) = %(s)s AND """
+    params = {"s": surname, "b": body_id, "d": when, "y": CONTEXT_YEARS, "seat": SEAT_ROLE_RE}
+    for evidence in (
+        """EXISTS (SELECT 1 FROM TB_Entity_Affiliation a WHERE a.entity_id = e.id
+                     AND a.organization_id = %(b)s AND a.role_title ~* %(seat)s
+                     AND (%(d)s::date IS NULL OR (a.last_seen_date >= %(d)s::date - make_interval(years => %(y)s)
+                          AND a.first_seen_date <= %(d)s::date + make_interval(years => %(y)s))))""",
+        """EXISTS (SELECT 1 FROM TB_Vote v JOIN TB_Vote_Motion m ON m.id = v.motion_id
+                   WHERE v.entity_id = e.id AND m.body_entity_id = %(b)s
+                     AND (%(d)s::date IS NULL OR abs(m.vote_date - %(d)s::date) <= 365 * %(y)s))""",
+    ):
+        rows = await (await conn.execute(person + evidence, params)).fetchall()
+        if len(rows) == 1:
+            return rows[0]["id"]
+        if rows:
+            return None  # ambiguous: two members share the surname
+    return None
+
+
 async def match_member(conn: AsyncConnection, raw: str, body_id: Optional[int],
-                       lookup: Callable[[str], Optional[int]]) -> Optional[int]:
+                       lookup: Callable[[str], Optional[int]], when: Optional[date] = None) -> Optional[int]:
     name = clean_member_name(raw)
     if not name:
         return None
+    surname = name.split()[-1].lower()
+    # A bare surname in a roll call means a member of THIS body: ask the body before the article's lookup,
+    # which can only place a lone surname in a holding entity ("Hallworth (Woodland)").
+    if body_id and len(name.split()) == 1:
+        eid = await _body_member_by_surname(conn, surname, body_id, when)
+        if eid:
+            return eid
     eid = lookup(name)
     if eid:
         return eid
-    surname = name.split()[-1].lower()
     if body_id:
         cur = await conn.execute(
             """SELECT DISTINCT e.id, e.canonical_name FROM TB_Entity e
@@ -245,11 +282,21 @@ async def match_member(conn: AsyncConnection, raw: str, body_id: Optional[int],
 async def store_votes(
     conn: AsyncConnection, encoder: Encoder, *, article_id: int, event_id: int, event: ExtractedEvent,
     action_date: Optional[date], jurisdiction: Optional[str], lookup: Callable[[str], Optional[int]],
+    minutes_body: Optional[str] = None,
 ) -> int:
-    """Record the event's roll calls (official minutes only - the caller checks). Returns motions stored."""
+    """Record the event's roll calls (official minutes only - the caller checks). Returns motions stored.
+    The members voting are the body whose minutes these are (`minutes_body`), even when the measure belongs to
+    another body (a committee voting to support a council ordinance, or to comment on a county plan)."""
     n = 0
+    voting_body = None
+    if minutes_body:  # agenda portals use the short name: "Climate Action Committee" -> "Winters Climate ..."
+        voting_body = await body_entity(conn, minutes_body, jurisdiction, lookup)
+        place = "Davis" if jurisdiction == "UC Davis" else jurisdiction
+        if not voting_body and place and not minutes_body.lower().startswith(place.lower()):
+            voting_body = await body_entity(conn, f"{place} {minutes_body}", jurisdiction, lookup)
     for v in event.votes:
         body_id = await body_entity(conn, v.measure.body_name, jurisdiction, lookup)
+        motion_body = voting_body or body_id
         mid = await resolve_measure(conn, encoder, v.measure, jurisdiction=jurisdiction, body_id=body_id,
                                     action_date=action_date, tags=event.topic_tags)
         if mid is None:
@@ -265,7 +312,7 @@ async def store_votes(
                ON CONFLICT (source_article_id, measure_id, motion_text) DO UPDATE
                  SET outcome = EXCLUDED.outcome, tally = EXCLUDED.tally, event_id = EXCLUDED.event_id
                RETURNING id""",
-            (mid, event_id, body_id, article_id, action_date, " ".join(v.motion.split())[:1000], v.outcome,
+            (mid, event_id, motion_body, article_id, action_date, " ".join(v.motion.split())[:1000], v.outcome,
              v.tally))
         motion_id = (await cur.fetchone())["id"]
         await conn.execute("DELETE FROM TB_Vote WHERE motion_id = %s", (motion_id,))
@@ -277,7 +324,7 @@ async def store_votes(
                 if not raw or raw.lower() in seen:
                     continue
                 seen.add(raw.lower())
-                member = await match_member(conn, raw, body_id, lookup)
+                member = await match_member(conn, raw, motion_body, lookup, action_date)
                 await conn.execute(
                     "INSERT INTO TB_Vote (motion_id, entity_id, raw_name, vote) VALUES (%s, %s, %s, %s)",
                     (motion_id, member, raw, kind))

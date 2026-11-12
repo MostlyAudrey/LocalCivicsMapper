@@ -67,7 +67,7 @@ def entity(entity_id: int):
     return render_template(
         "entity.html", e=ent,
         affiliations=db_wiki.entity_affiliations_condensed(entity_id),
-        members=db_wiki.entity_members(entity_id) if ent["entity_type"] != "PERSON" else [],
+        members=db_wiki.entity_members(entity_id) if ent["entity_type"] != "PERSON" else None,
         topics=db_wiki.entity_topics(entity_id),
         allies=db_wiki.entity_coalition(entity_id, allies=True),
         opponents=db_wiki.entity_coalition(entity_id, allies=False),

@@ -198,6 +198,7 @@ class Orchestrator:
                                 conn, self.encoder, article_id=aid, published_at=art["published_at"],
                                 result=result, genre=art.get("genre"), jurisdiction=jurisdiction,
                                 allow_votes=record_kind == "minutes", text=art.get("full_text"),
+                                minutes_body=(art.get("doc_meta") or {}).get("body") if record_kind else None,
                             )
                             if replace_existing:
                                 gone = await repo.delete_orphans(conn)

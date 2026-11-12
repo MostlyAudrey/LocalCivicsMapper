@@ -515,11 +515,13 @@ async def resolve_article(
     jurisdiction: Optional[str] = None,
     allow_votes: bool = False,
     text: Optional[str] = None,
+    minutes_body: Optional[str] = None,
 ) -> ResolutionSummary:
     """Persist one article's Stage 2 output. Caller owns the transaction. `genre` (from triage) marks events
     born in opinion pieces as provisional; each stance row keeps its evidence type for weighting (v1.5).
     `jurisdiction` (the Yolo city the article is about) places bare body names like "Planning Commission".
-    `allow_votes` (official minutes only) records the roll calls in ExtractedEvent.votes (v1.8).
+    `allow_votes` (official minutes only) records the roll calls in ExtractedEvent.votes (v1.8); `minutes_body`
+    (doc_meta.body, e.g. "Climate Action Committee") is the body that voted, whatever body the measure belongs to.
     `text` (the article) lets acronyms the article defines be expanded ("Community Development Department (CDD)")."""
     seen_at = _as_aware(published_at)
     motions = 0
@@ -594,7 +596,8 @@ async def resolve_article(
             if allow_votes and ev.votes and measures_ok:
                 motions += await measures.store_votes(conn, encoder, article_id=article_id, event_id=event_id,
                                                       event=ev, action_date=action_date,
-                                                      jurisdiction=jurisdiction, lookup=lookup)
+                                                      jurisdiction=jurisdiction, lookup=lookup,
+                                                      minutes_body=minutes_body)
 
             if not invs:
                 continue
