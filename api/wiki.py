@@ -85,10 +85,18 @@ def event(event_id: int):
     if not ev:
         abort(404)
     actors = db_wiki.event_actors(event_id)
-    order = ["SUPPORT", "OPPOSE", "APOLOGETIC", "DEFENSIVE", "INVESTIGATIVE", "PARTICIPANT", "NEUTRAL"]
-    groups = [(s, [a for a in actors if a["stance"] == s]) for s in order]
+    sides = [s for s in db_wiki.event_sides(event_id) if s["entity_ids"]]
+    if len(sides) >= 2:  # contested: group by side (an endorser of two candidates shows under both)
+        placed = {i for s in sides for i in s["entity_ids"]}
+        groups = [(s["label"], [a for a in actors if a["entity_id"] in s["entity_ids"]]) for s in sides]
+        groups.append(("On no side", [a for a in actors if a["entity_id"] not in placed]))
+        by = "side"
+    else:
+        order = ["SUPPORT", "OPPOSE", "APOLOGETIC", "DEFENSIVE", "INVESTIGATIVE", "PARTICIPANT", "NEUTRAL"]
+        groups = [(s, [a for a in actors if a["stance"] == s]) for s in order]
+        by = "stance"
     return render_template("event.html", ev=ev, articles=db_wiki.event_articles(event_id),
-                           groups=[g for g in groups if g[1]])
+                           groups=[g for g in groups if g[1]], group_by=by)
 
 
 @wiki_bp.route("/wiki/measures")

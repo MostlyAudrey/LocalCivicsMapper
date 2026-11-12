@@ -229,6 +229,11 @@ async def delete_orphans(conn: AsyncConnection) -> Dict[str, int]:
           AND NOT EXISTS (SELECT 1 FROM TB_Entity_Affiliation a WHERE a.entity_id = e.id OR a.organization_id = e.id)
         """ + in_use
     )
+    cur = await conn.execute("SELECT to_regclass('tb_entity_event_side') IS NOT NULL AS ok")
+    if (await cur.fetchone())["ok"]:  # v2.0: extracted/backfilled sides nobody is on any more
+        await conn.execute(
+            """DELETE FROM TB_Event_Side s WHERE s.source <> 'manual'
+                 AND NOT EXISTS (SELECT 1 FROM TB_Entity_Event_Side l WHERE l.side_id = s.id)""")
     return {"events": ev.rowcount, "entities": en.rowcount, "measures": measures}
 
 

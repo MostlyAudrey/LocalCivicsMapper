@@ -619,12 +619,30 @@ class Worker:
                 await self._finish(cid, "DONE", "burst stopping after in-flight articles finish")
             else:
                 await self._finish(cid, "DONE", "no burst was running")
+        elif c == "ASSIGN_SIDES":
+            if getattr(self, "sides_task", None) and not self.sides_task.done():
+                await self._finish(cid, "FAILED", "an assign-sides run is already in progress")
+            else:
+                self.sides_task = self._spawn(self._assign_sides(
+                    cid, limit=int(p.get("limit") or 500), cap=p.get("max_spend_usd"),
+                    event_id=p.get("event_id")))
         elif c == "SYNTHESIZE_BIOS":
             self._spawn(self._bios_now(cid, int(p.get("limit") or settings.BIO_BATCH_LIMIT)))
         elif c == "REGENERATE_BIO":
             self._spawn(self._bios_now(cid, 1, entity_id=int(p["entity_id"])))
         else:
             await self._finish(cid, "FAILED", f"unknown command {c}")
+
+    async def _assign_sides(self, cid: int, *, limit: int, cap, event_id) -> None:
+        """Backfill event sides on the API model (v2.0); stance rows and the article queue are untouched."""
+        from civic_tracker.pipeline.assign_sides import SidesBackfill
+        try:
+            stats = await SidesBackfill(self.pool, cap_usd=float(cap) if cap else None).run(
+                limit=limit, event_id=int(event_id) if event_id else None)
+            await self._finish(cid, "DONE", stats.summary())
+        except Exception as exc:  # noqa: BLE001
+            log.exception("assign-sides failed")
+            await self._finish(cid, "FAILED", f"{type(exc).__name__}: {exc}")
 
     async def _bios_now(self, cid: int, limit: int, entity_id: Optional[int] = None) -> None:
         async with self.bio_lock:

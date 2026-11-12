@@ -65,6 +65,7 @@ def db_init_web() -> None:
         await init_schema(pool, "schema_web_v17.sql")
         await init_schema(pool, "schema_web_v18.sql")
         await init_schema(pool, "schema_web_v19.sql")
+        await init_schema(pool, "schema_web_v20.sql")
 
     _run(go())
     console.print("[green]Web schema applied.[/green]")
@@ -312,6 +313,33 @@ def reextract(
         console.print(line)
     console.print(f"[bold]Done:[/bold] {stats.processed} re-extracted, {stats.failed} failed, "
                   f"{len(ids) - stats.processed - stats.failed} not run; spend ${spent:.4f}")
+
+
+@app.command("assign-sides")
+def assign_sides_cmd(
+    limit: int = typer.Option(500, help="Events to check this run (contested kinds and newest first)."),
+    event_id: Optional[int] = typer.Option(None, "--event", help="Only this event."),
+    max_spend: Optional[float] = typer.Option(None, help="USD cap for this run (default SIDES_BACKFILL_SPEND_CAP_USD)."),
+    show_prompt: bool = typer.Option(False, help="Print the prompt for --event and exit (no API call)."),
+) -> None:
+    """Backfill event SIDES (v2.0) for events extracted before the sides prompt, on the burst API model.
+    Only side tables are written; stances, quotes and summaries are untouched. Safe while the worker runs."""
+    from civic_tracker.pipeline.assign_sides import ACTORS_SQL, MAX_ACTORS, SidesBackfill, build_prompt
+
+    async def go():
+        pool = await get_pool()
+        if show_prompt:
+            async with pool.connection() as conn:
+                ev = await (await conn.execute("SELECT * FROM TB_Event WHERE id = %s", (event_id,))).fetchone()
+                actors = await (await conn.execute(ACTORS_SQL, (event_id, MAX_ACTORS))).fetchall()
+            console.print(build_prompt(ev, actors))
+            return
+        stats = await SidesBackfill(pool, cap_usd=max_spend).run(limit=limit, event_id=event_id)
+        console.print(stats.summary())
+        for e in stats.errors[:10]:
+            console.print(f"  [red]{e}[/red]")
+
+    _run(go())
 
 
 @app.command("synthesize-wiki")

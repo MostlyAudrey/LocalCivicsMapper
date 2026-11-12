@@ -401,6 +401,19 @@ def merge_entities(source_id: int, target_id: int) -> Row:
                 """,
                 {"sid": source_id, "tid": target_id},
             )
+            if conn.execute("SELECT to_regclass('tb_entity_event_side') IS NOT NULL AS ok").fetchone()["ok"]:
+                conn.execute(  # v2.0: the duplicate row's sides move to the row it merges into
+                    """
+                    INSERT INTO TB_Entity_Event_Side (entity_event_id, side_id)
+                    SELECT t.id, l.side_id FROM TB_Entity_Event s
+                    JOIN TB_Entity_Event t ON t.entity_id = %(tid)s AND t.event_id = s.event_id
+                         AND t.source_article_id = s.source_article_id
+                    JOIN TB_Entity_Event_Side l ON l.entity_event_id = s.id
+                    WHERE s.entity_id = %(sid)s
+                    ON CONFLICT DO NOTHING
+                    """,
+                    {"sid": source_id, "tid": target_id},
+                )
             conn.execute(
                 """
                 DELETE FROM TB_Entity_Event s USING TB_Entity_Event t

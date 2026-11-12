@@ -476,6 +476,29 @@ def event_articles(event_id: int) -> List[Row]:
     )
 
 
+def sides_ready() -> bool:
+    row = db.fetch_one("SELECT to_regclass('tb_entity_event_side') IS NOT NULL AS ok")
+    return bool(row and row["ok"])
+
+
+def event_sides(event_id: int) -> List[Row]:
+    """The event's sides (v2.0) with the entities on each; [] before the migration or when uncontested."""
+    if not sides_ready():
+        return []
+    return db.fetch_all(
+        """
+        SELECT s.id, s.label, s.side_kind, s.source,
+               ARRAY_AGG(DISTINCT ee.entity_id) FILTER (WHERE ee.id IS NOT NULL AND NOT ee.disputed) AS entity_ids
+        FROM TB_Event_Side s
+        LEFT JOIN TB_Entity_Event_Side l ON l.side_id = s.id
+        LEFT JOIN TB_Entity_Event ee ON ee.id = l.entity_event_id
+        WHERE s.event_id = %s
+        GROUP BY s.id ORDER BY s.id
+        """,
+        (event_id,),
+    )
+
+
 def event_actors(event_id: int) -> List[Row]:
     """One card per actor: primary stance + all summaries/quotes across articles."""
     return db.fetch_all(

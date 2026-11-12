@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     BURST_PRICE_INPUT_PER_M: float = 0.30        # USD per 1M input tokens (peak; cache hits are cheaper)
     BURST_PRICE_OUTPUT_PER_M: float = 1.20       # USD per 1M output tokens (peak)
     BURST_DEFAULT_SPEND_CAP_USD: float = 5.0
+    # assign-sides backfill (v2.0): runs on the burst API model; spend cap per run (one event ~ $0.001)
+    SIDES_BACKFILL_SPEND_CAP_USD: float = 3.0
+    SIDES_BACKFILL_MAX_TOKENS: int = 8000
     # When the local model's output hits LLM_MAX_TOKENS (almost always a repetition loop that ties up a slot
     # for minutes), send that article to the burst API model instead of retrying locally. Needs
     # BURST_LLM_API_KEY; capped per UTC day (then it falls back to one local retry).

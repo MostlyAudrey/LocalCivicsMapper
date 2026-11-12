@@ -11,7 +11,7 @@ from typing import Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 from psycopg import AsyncConnection
 
 from civic_tracker.db import repositories as repo
-from civic_tracker.pipeline import measures
+from civic_tracker.pipeline import measures, sides
 from civic_tracker.pipeline.encoder import Encoder
 from civic_tracker.pipeline.jurisdiction import (YOLO_CITIES, alias_ok, compatible_names, expand_acronym,
                                                  is_acronym, is_generic_body, places_in, qualify_generic)
@@ -494,6 +494,9 @@ def _merge_involvements(invs: List[Tuple[int, ExtractedInvolvement]]) -> List[Tu
             for q in inv.direct_quotes:
                 if q not in existing.direct_quotes:
                     existing.direct_quotes.append(q)
+            for s in inv.sides:
+                if s not in existing.sides:
+                    existing.sides.append(s)
     return list(merged.items())
 
 
@@ -616,6 +619,11 @@ async def resolve_article(
                     evidence_type=inv.evidence,
                     claimed_by=_clean(inv.claimed_by) if inv.claimed_by else None,
                 )
+            # who is on which side (contested events) and, for split roll calls, aye vs. no
+            await sides.store_extracted_sides(conn, event_id=event_id, article_id=article_id, sides=ev.sides,
+                                              memberships={eid: inv.sides for eid, inv in invs if inv.sides})
+            if allow_votes and ev.votes:
+                await sides.rollcall_sides_for_event(conn, event_id=event_id, article_id=article_id)
 
     log.info("article %s: %d entities, %d events (%d new, %d merged), %d roll-call motion(s)",
              article_id, len(entity_ids), len(event_ids), created, merged, motions)

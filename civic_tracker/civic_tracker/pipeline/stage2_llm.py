@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, ValidationError
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from civic_tracker.config import settings
+from civic_tracker.pipeline.sides import side_key
 from civic_tracker.pipeline.telemetry import llm_call_timer, usage_fields
 
 log = logging.getLogger(__name__)
@@ -48,6 +49,18 @@ class ExtractedInvolvement(BaseModel):
                     "asserts or characterizes what this entity did, said or believes")
     claimed_by: Optional[str] = Field(default=None, max_length=120,
                                       description="For evidence=claimed: who makes the claim (person or outlet)")
+    sides: List[str] = Field(default_factory=list, max_length=4,
+                             description="Labels (exactly as listed in the event's sides) of the side(s) this entity "
+                                         "is on; empty if it takes no side")
+
+
+SideKind = Literal["candidate", "position", "party", "other"]
+
+
+class ExtractedSide(BaseModel):
+    label: str = Field(max_length=80, description="Short side name, e.g. 'Jane Roe campaign', 'For Measure J', "
+                                                  "'Plaintiffs', 'Critics of the stop'")
+    kind: SideKind = "other"
 
 
 MeasureType = Literal["ORDINANCE", "RESOLUTION", "BUDGET", "CONTRACT", "LAND_USE", "APPOINTMENT", "POLICY",
@@ -87,6 +100,10 @@ class ExtractedEvent(BaseModel):
     summary: str = Field(max_length=1200, description="2-3 sentence objective summary of the event")
     topic_tags: List[str] = Field(description="2-5 lowercase policy tags, e.g., ['immigration', 'policing', 'civil-rights']")
     involvements: List[ExtractedInvolvement]
+    sides: List[ExtractedSide] = Field(
+        default_factory=list, max_length=6,
+        description="The competing sides when the event is contested (rival candidates, for/against, plaintiffs vs. "
+                    "defendants, critics vs. defenders); empty when nothing is contested")
     measures: List[ExtractedMeasureRef] = Field(
         default_factory=list, description="Specific ordinances / resolutions / projects / budgets / ballot measures "
                                           "this event is about (empty if none)")
@@ -142,6 +159,15 @@ official apologizes for their own institution); DEFENSIVE = defends their own or
 against criticism or denies wrongdoing; INVESTIGATIVE = reviews, investigates, audits, or urges waiting for \
 findings; PARTICIPANT = directly took part (e.g. made the stop, conducted the operation) without stating a \
 position; NEUTRAL = mentioned or reported without a position.
+- sides: when an event is contested, list its competing sides (2-6) and put each involvement on the side(s) it \
+works for, using the side labels exactly. A stance says HOW an entity acted; a side says WHOSE side it is on. \
+Elections: each candidate (or ballot-measure position) is a side, kind "candidate" or "position"; the candidate, \
+their campaign staff, endorsers, donors and PACs that help them are on that side - a group that OPPOSES candidate B \
+in a two-way race is on candidate A's side; in a race with more candidates put it on no side unless the article \
+says whom it backs. Someone endorsing two candidates for two seats is on both sides. Lawsuits: plaintiffs vs. \
+defendants. Controversies: critics vs. the people defending the conduct. Reporters, moderators, election officials \
+and neutral experts are on no side. Leave sides empty when nothing is contested (a routine announcement, a \
+unanimous vote, a meeting).
 - topic_tags: 2-5 lowercase, hyphenated policy tags (e.g. "immigration", "policing", "civil-rights").
 - measures: when an event is about a specific ordinance, resolution, contract, budget, development project or \
 land-use approval, appointment, policy, or ballot measure, list it (title, type, its official number ONLY if \
@@ -406,6 +432,15 @@ def sanitize_result(result: ArticleExtractionResult) -> tuple[ArticleExtractionR
             else:
                 dropped += 1
         ev.involvements = keep
+        # sides: drop blank/sentence-like labels; an involvement may only name sides the event lists
+        ev.sides = [s for s in ev.sides if s.label.strip() and _looks_like_label(s.label, 12)]
+        listed = {side_key(s.label) for s in ev.sides}
+        for inv in ev.involvements:
+            inv.sides = [lb for lb in inv.sides if side_key(lb) in listed]
+        if len(ev.sides) < 2 or not any(inv.sides for inv in ev.involvements):
+            ev.sides = []  # one side, or nobody on any side: not a contest
+            for inv in ev.involvements:
+                inv.sides = []
     return result, dropped
 
 
