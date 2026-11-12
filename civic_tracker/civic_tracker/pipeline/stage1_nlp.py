@@ -150,6 +150,19 @@ def _chunk_by_sentences(sentences: List[Span], max_chars: int = 1200) -> List[Sp
     return chunks
 
 
+def _cap_spans(text: str, spans: List[Span], max_chars: int) -> List[Span]:
+    """Split any span still longer than max_chars (e.g. a PDF table read as one "sentence") at whitespace."""
+    out: List[Span] = []
+    for s, e in spans:
+        while e - s > max_chars:
+            cut = text.rfind(" ", s + max_chars // 2, s + max_chars)
+            cut = cut if cut > s else s + max_chars
+            out.append((s, cut))
+            s = cut
+        out.append((s, e))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Default model-backed implementations (lazy singletons)
 # ---------------------------------------------------------------------------
@@ -181,8 +194,16 @@ def _fastcoref_clusters(text: str) -> List[List[Span]]:
         from fastcoref import FCoref
 
         _coref_model = FCoref(device=settings.COREF_DEVICE)
-    preds = _coref_model.predict(texts=[text])
-    return [[(int(s), int(e)) for s, e in cluster] for cluster in preds[0].get_clusters(as_strings=False)]
+    limit = settings.COREF_CHUNK_CHARS
+    spans = ([(0, len(text))] if len(text) <= limit
+             else _cap_spans(text, _chunk_by_sentences(_spacy_sentences(text), limit), limit))
+    out: List[List[Span]] = []
+    # One chunk per call: batching them would bring the memory peak right back.
+    for cs, ce in spans:
+        preds = _coref_model.predict(texts=[text[cs:ce]])
+        out.extend([[(cs + int(s), cs + int(e)) for s, e in cluster]
+                    for cluster in preds[0].get_clusters(as_strings=False)])
+    return out
 
 
 def _gliner_entities(text: str, labels: Sequence[str]) -> List[Dict]:

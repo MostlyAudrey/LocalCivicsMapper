@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # Stage 1 local models
     SPACY_MODEL: str = "en_core_web_sm"
     COREF_DEVICE: str = "cpu"  # e.g. "cuda:0"
+    # fastcoref memory grows super-linearly with length (a 40k-char PDF peaked at 9 GB and got OOM-killed),
+    # so long texts are resolved in sentence-aligned chunks of at most this many characters.
+    COREF_CHUNK_CHARS: int = 6000
     GLINER_MODEL: str = "knowledgator/gliner-relex-large-v1.0"
     GLINER_DEVICE: str = "cpu"
     GLINER_THRESHOLD: float = 0.5
