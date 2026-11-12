@@ -54,7 +54,8 @@ def db_init() -> None:
 @app.command("db-init-web")
 def db_init_web() -> None:
     """Execute schema_web.sql + schema_web_v15.sql .. v17.sql (web UI, Stage 3, worker control, triage,
-    source weighting, official records, merge "not duplicate" decisions). Mirrors sql/ v1.2 .. v1.8 (v1.8: measures + roll-call votes)."""
+    source weighting, official records, merge "not duplicate" decisions). Mirrors sql/ v1.2 .. v1.9 (v1.8: measures + roll-call votes; v1.9: coalition index
+    ignores take-part-only events)."""
 
     async def go():
         pool = await get_pool()
@@ -63,6 +64,7 @@ def db_init_web() -> None:
         await init_schema(pool, "schema_web_v16.sql")
         await init_schema(pool, "schema_web_v17.sql")
         await init_schema(pool, "schema_web_v18.sql")
+        await init_schema(pool, "schema_web_v19.sql")
 
     _run(go())
     console.print("[green]Web schema applied.[/green]")

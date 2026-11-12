@@ -276,17 +276,67 @@ _REPUTABLE_LINK_SQL = """
 """
 
 
+# A campaign committee named after a candidate ("Jane Roe for Congress", "Committee to Elect ...", "Jane Roe
+# campaign"): its staff (campaign manager, treasurer, consultant...) are the candidate's allies by definition, whether
+# or not the news ever put them in the same event with matching stances. Mirrored in stage3_wiki.
+CAMPAIGN_ORG_RE = (r"\mcampaign\M|\mcommittee\s+to\s+(re-?)?elect\M|^(re-?)?elect\M|\mfriends\s+of\s+[A-Z]"
+                   r"|\mfor\s+(u\.?s\.?\s+)?(congress|assembly|state\s+senate|senate|city\s+council|council"
+                   r"|supervisor|mayor|sheriff|district\s+attorney|judge|school\s+board|board|trustee|governor"
+                   r"|treasurer|assessor|clerk|controller|auditor)\M")
+
+
+def entity_campaign_links(entity_id: int) -> List[Row]:
+    """Candidate <-> campaign-staff links for this entity, shaped like coalition rows (entity_b_*) plus
+    `campaign_roles` / `campaign_org`. The candidate is a full-name PERSON whose name appears in the committee's."""
+    return db.fetch_all(
+        """
+        WITH links AS (
+            SELECT cand.id AS cand_id, cand.canonical_name AS cand_name,
+                   staff.id AS staff_id, staff.canonical_name AS staff_name,
+                   af.role_title, o.canonical_name AS org_name
+            FROM TB_Entity o
+            JOIN TB_Entity cand ON cand.entity_type = 'PERSON' AND cand.canonical_name LIKE '%% %%'
+                 AND strpos(lower(o.canonical_name), lower(cand.canonical_name)) > 0
+            JOIN TB_Entity_Affiliation af ON af.organization_id = o.id
+            JOIN TB_Entity staff ON staff.id = af.entity_id AND staff.entity_type = 'PERSON' AND staff.id <> cand.id
+            WHERE o.entity_type <> 'PERSON' AND o.canonical_name ~* %(re)s
+              AND (cand.id = %(eid)s OR staff.id = %(eid)s)
+        )
+        SELECT CASE WHEN cand_id = %(eid)s THEN staff_id ELSE cand_id END AS entity_b_id,
+               CASE WHEN cand_id = %(eid)s THEN staff_name ELSE cand_name END AS entity_b_name,
+               bool_or(cand_id = %(eid)s) AS is_candidate,
+               array_agg(DISTINCT role_title) FILTER (WHERE role_title IS NOT NULL) AS campaign_roles,
+               min(org_name) AS campaign_org
+        FROM links GROUP BY 1, 2 ORDER BY 2
+        """,
+        {"eid": entity_id, "re": CAMPAIGN_ORG_RE},
+    )
+
+
 def entity_coalition(entity_id: int, allies: bool, limit: int = 8) -> List[Row]:
     params = {"eid": entity_id, "min_rel": REPUTABLE_MIN_RELIABILITY, "min_shared": MIN_ALLY_SHARED_EVENTS,
               "min_counterpart": MIN_COUNTERPART_EVENTS, "limit": limit}
     if allies:
-        return db.fetch_all(
+        rows = db.fetch_all(
             """SELECT m.* FROM VW_Entity_Coalition_Matrix m
                WHERE m.entity_a_id = %(eid)s AND m.alignment_index > 0
                  AND m.shared_events_count >= %(min_shared)s""" + _REPUTABLE_LINK_SQL + """
                ORDER BY m.shared_events_count DESC, m.alignment_index DESC LIMIT %(limit)s""",
             params,
         )
+        campaign = entity_campaign_links(entity_id)
+        if not campaign:
+            return rows
+        # Campaign staff rank first, pinned at +100%, keeping their shared-event stats when they have any.
+        matrix = {r["entity_b_id"]: r for r in db.fetch_all(
+            "SELECT * FROM VW_Entity_Coalition_Matrix WHERE entity_a_id = %s AND entity_b_id = ANY(%s)",
+            (entity_id, [c["entity_b_id"] for c in campaign]))}
+        pinned = []
+        for c in campaign:
+            m = matrix.get(c["entity_b_id"]) or {"shared_events_count": 0, "shared_topic_tags": []}
+            pinned.append({**m, **c, "alignment_index": 1})
+        ids = {c["entity_b_id"] for c in campaign}
+        return (pinned + [r for r in rows if r["entity_b_id"] not in ids])[:max(limit, len(pinned))]
     return db.fetch_all(
         """SELECT m.* FROM VW_Entity_Coalition_Matrix m
            WHERE m.entity_a_id = %(eid)s AND m.alignment_index < 0""" + _REPUTABLE_LINK_SQL + """

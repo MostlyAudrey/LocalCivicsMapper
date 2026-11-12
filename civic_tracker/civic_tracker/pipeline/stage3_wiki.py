@@ -33,6 +33,11 @@ BIO_MIN_EVENTS_WITH_AFFILIATION = 2
 MIN_ALLY_SHARED_EVENTS = 2
 REPUTABLE_MIN_RELIABILITY = 0.7
 MIN_COUNTERPART_EVENTS = 2
+# Campaign committees named after a candidate (mirror of lib/db_wiki.py CAMPAIGN_ORG_RE; keep in sync).
+CAMPAIGN_ORG_RE = (r"\mcampaign\M|\mcommittee\s+to\s+(re-?)?elect\M|^(re-?)?elect\M|\mfriends\s+of\s+[A-Z]"
+                   r"|\mfor\s+(u\.?s\.?\s+)?(congress|assembly|state\s+senate|senate|city\s+council|council"
+                   r"|supervisor|mayor|sheriff|district\s+attorney|judge|school\s+board|board|trustee|governor"
+                   r"|treasurer|assessor|clerk|controller|auditor)\M")
 REPUTABLE_LINK_SQL = """
   AND (SELECT count(DISTINCT z.event_id) FROM TB_Entity_Event z
        WHERE z.entity_id = m.entity_b_id AND NOT z.disputed) >= %(min_counterpart)s
@@ -174,6 +179,20 @@ async def build_context(conn: AsyncConnection, entity_id: int) -> Optional[str]:
         params,
     )
     opponents = await cur.fetchall()
+    # Candidate -> staff of a campaign committee named after them (staff already see it in their own Career roles).
+    cur = await conn.execute(
+        """SELECT staff.canonical_name AS name, string_agg(DISTINCT af.role_title, ', ') AS roles,
+                  min(o.canonical_name) AS org
+           FROM TB_Entity cand
+           JOIN TB_Entity o ON o.entity_type <> 'PERSON' AND o.canonical_name ~* %(re)s
+                AND strpos(lower(o.canonical_name), lower(cand.canonical_name)) > 0
+           JOIN TB_Entity_Affiliation af ON af.organization_id = o.id
+           JOIN TB_Entity staff ON staff.id = af.entity_id AND staff.entity_type = 'PERSON' AND staff.id <> cand.id
+           WHERE cand.id = %(eid)s AND cand.entity_type = 'PERSON' AND cand.canonical_name LIKE '%% %%'
+           GROUP BY staff.canonical_name ORDER BY 1""",
+        {"eid": entity_id, "re": CAMPAIGN_ORG_RE},
+    )
+    staff = await cur.fetchall()
 
     def d(x) -> str:
         return x.strftime("%Y-%m-%d") if x else "undated"
@@ -203,6 +222,9 @@ async def build_context(conn: AsyncConnection, entity_id: int) -> Optional[str]:
             who = c["claimed_by"] or f"a {c['genre'] or 'commentary'} piece"
             lines.append(f"- In {c['source_name']}, {who} ({d(c['published_at'])}, re: {c['canonical_title']}): "
                          f"{c['action_summary']}")
+    if staff:
+        lines.append("\nCampaign staff: " + "; ".join(
+            f"{s['name']} ({s['roles'] or 'staff'}, {s['org']})" for s in staff))
     if allies:
         lines.append("\nFrequent allies (shared events, alignment): "
                      + "; ".join(f"{a['entity_b_name']} ({a['shared_events_count']}, {a['alignment_index']:+.2f})" for a in allies))

@@ -159,7 +159,12 @@
             <a class="text-blue-600 hover:underline" href="{{ url_for('wiki.entity', entity_id=c.entity_b_id) }}">{{ c.entity_b_name }}</a>
             <span class="font-mono text-emerald-700">{{ '%+d'|format((c.alignment_index * 100)|round|int) }}%</span>
           </div>
+          {% if c.campaign_org %}
+          <div class="text-xs text-emerald-700" title="{{ c.campaign_org }}">{% if c.is_candidate %}Campaign staff{% else %}Candidate they work for{% endif %}{% if c.campaign_roles %} ({{ c.campaign_roles|join(', ') }}){% endif %} · {{ c.campaign_org }}</div>
+          {% endif %}
+          {% if c.shared_events_count or not c.campaign_org %}
           <div class="text-xs text-slate-500">{{ c.shared_events_count }} shared event{{ '' if c.shared_events_count == 1 else 's' }}{% if c.shared_topic_tags %} · {{ c.shared_topic_tags[:4]|join(', ') }}{% endif %}</div>
+          {% endif %}
         </div>
       {% else %}<p class="text-slate-400 text-xs">No aligned partners yet.</p>{% endfor %}
     {% endcall %}
