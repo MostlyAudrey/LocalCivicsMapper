@@ -80,7 +80,9 @@
     {% from "_votes.html" import vote_badge, measure_type, outcome %}
     {% call section('voting-record', 'Voting record', note=(votes|length ~ ' vote' ~ ('' if votes|length == 1 else 's') ~ (' on ' ~ vote_topic if vote_topic else ''))) %}
       <p class="mb-3 text-xs text-slate-500">Roll-call votes from official minutes only; procedural votes (approving minutes or agendas, adjourning) are left out. “Against majority” = voted aye/no opposite to most members on that motion.</p>
-      <table class="mb-4 w-full text-sm">
+      <details class="mb-4"{{ ' open' if vote_topic }}>
+        <summary class="cursor-pointer text-xs text-blue-600 hover:underline">Votes by topic ({{ vote_summary|length }})</summary>
+      <table class="mt-2 w-full text-sm">
         <thead><tr class="text-left text-xs uppercase tracking-wide text-slate-500">
           <th class="py-1">Topic</th><th class="text-right">Votes</th><th class="text-right">Aye</th><th class="text-right">No</th>
           <th class="text-right">Abstain</th><th class="text-right">Absent / recused</th><th class="text-right">Against majority</th></tr></thead>
@@ -94,6 +96,7 @@
         {% endfor %}
         </tbody>
       </table>
+      </details>
       {% if vote_topic %}<p class="mb-2 text-sm">Showing <strong>{{ vote_topic }}</strong> · <a class="text-blue-600 hover:underline" href="?#voting-record">all topics</a></p>{% endif %}
       <table class="w-full text-sm">
         <tbody>
